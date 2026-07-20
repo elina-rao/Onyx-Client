@@ -1,0 +1,10 @@
+node_modules/
+dist/
+out/
+*.log
+.DS_Store
+.env
+.env.local
+resources/OnyxLoader.jar
+resources/OnyxClient*.jar
+resources/jre/

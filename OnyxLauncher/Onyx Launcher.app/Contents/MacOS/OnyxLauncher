@@ -1,0 +1,59 @@
+#!/bin/bash
+# Prefer the packed electron-builder app (correct Dock/menu name).
+# Fall back to npm start for local development when dist is missing.
+set -euo pipefail
+
+HERE="$(cd "$(dirname "$0")/../../.." && pwd)"
+DEFAULT_PROJECT="/Users/lucasgravdal/Documents/Onyx Client Beta/OnyxLauncher"
+
+if [ -f "$HERE/package.json" ]; then
+  LAUNCHER_DIR="$HERE"
+else
+  LAUNCHER_DIR="$DEFAULT_PROJECT"
+fi
+
+SELF_APP="$(cd "$(dirname "$0")/../.." && pwd)"
+
+# Packed app locations (electron-builder --dir)
+for CANDIDATE in \
+  "$LAUNCHER_DIR/dist/mac-arm64/Onyx Launcher.app" \
+  "$LAUNCHER_DIR/dist/mac-arm64/OnyxLauncher.app" \
+  "$LAUNCHER_DIR/dist/mac/Onyx Launcher.app" \
+  "$LAUNCHER_DIR/dist/mac/OnyxLauncher.app" \
+  "$LAUNCHER_DIR/dist/mac-x64/Onyx Launcher.app" \
+  "$LAUNCHER_DIR/dist/mac-x64/OnyxLauncher.app" \
+  "/Applications/Onyx Launcher.app"
+do
+  [ -d "$CANDIDATE" ] || continue
+  # Avoid recursively opening this same wrapper bundle
+  if [ "$(cd "$CANDIDATE" && pwd)" = "$SELF_APP" ]; then
+    continue
+  fi
+  for EXEC_NAME in "OnyxLauncher" "Onyx Launcher"; do
+    EXEC="$CANDIDATE/Contents/MacOS/$EXEC_NAME"
+    if [ -x "$EXEC" ] && file "$EXEC" 2>/dev/null | grep -q 'Mach-O'; then
+      exec open -n -a "$CANDIDATE"
+    fi
+  done
+done
+
+cd "$LAUNCHER_DIR"
+export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+unset ELECTRON_RUN_AS_NODE
+
+if [ ! -f "$LAUNCHER_DIR/package.json" ]; then
+  osascript -e "display alert \"Onyx Launcher\" message \"Could not find the launcher project at:\n$LAUNCHER_DIR\" as critical"
+  exit 1
+fi
+
+if ! command -v npm >/dev/null 2>&1; then
+  osascript -e 'display alert "Onyx Launcher" message "npm was not found. Install Node.js 18+ and try again." as critical'
+  exit 1
+fi
+
+if [ ! -d "$LAUNCHER_DIR/node_modules/electron" ]; then
+  osascript -e 'display alert "Onyx Launcher" message "Dependencies missing. Open Terminal, cd into OnyxLauncher, run npm install, then try again." as critical'
+  exit 1
+fi
+
+exec npm start

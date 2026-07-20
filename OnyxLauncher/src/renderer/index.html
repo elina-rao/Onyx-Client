@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' https: data:; connect-src 'self' https:;" />
+  <title>Onyx Launcher</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <canvas id="particles" aria-hidden="true"></canvas>
+  <div id="vignette" class="vignette hidden"></div>
+
+  <!-- Auth Modal -->
+  <div id="auth-modal" class="auth-overlay hidden" role="dialog" aria-modal="true">
+    <div class="auth-card">
+      <div class="auth-logo">
+        <span class="diamond">◆</span>
+        <span class="wordmark">ONYX CLIENT</span>
+        <span class="diamond">◆</span>
+      </div>
+      <p class="auth-subtitle">Ranked Bedwars — 1.8.9</p>
+      <div class="auth-divider"></div>
+      <p id="session-notice" class="session-notice hidden">Session expired — please sign in again</p>
+      <p class="auth-descriptor">Sign in to access your Onyx account</p>
+
+      <button id="btn-microsoft" class="btn btn-primary" type="button">
+        <span class="btn-icon" aria-hidden="true">⊞</span>
+        <span>Continue with Microsoft</span>
+      </button>
+
+      <button id="btn-guest" class="btn btn-secondary" type="button">
+        <span class="btn-icon accent" aria-hidden="true">◈</span>
+        <span>Play as Guest</span>
+      </button>
+
+      <div id="guest-form" class="guest-form hidden">
+        <input
+          id="guest-username"
+          type="text"
+          maxlength="16"
+          placeholder="Enter your username"
+          autocomplete="username"
+        />
+        <p class="guest-notice">Guest mode — ranked features unavailable</p>
+      </div>
+
+      <p class="legal">
+        By continuing you agree to our
+        <a id="terms-link" href="#">Terms of Service</a>
+      </p>
+    </div>
+  </div>
+
+  <!-- Main shell (post-login) -->
+  <div id="app-shell" class="app-shell hidden">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-onyx">ONYX</div>
+        <div class="brand-sub">LAUNCHER</div>
+      </div>
+      <nav class="nav">
+        <button class="nav-item active" data-view="home" type="button">Home</button>
+        <button class="nav-item" data-view="settings" type="button">Settings</button>
+      </nav>
+      <div class="sidebar-footer">
+        <button id="btn-discord" class="link-quiet" type="button">Discord</button>
+      </div>
+    </aside>
+
+    <main class="main">
+      <section id="view-home" class="view">
+        <header class="view-header">
+          <h1>Home</h1>
+          <p class="muted">News, stats, and launch controls</p>
+        </header>
+
+        <div class="home-grid">
+          <article class="panel news-panel">
+            <h2>Changelog</h2>
+            <ul id="news-list" class="news-list">
+              <li>
+                <span class="news-tag">v1.0.1</span>
+                Play readiness strip, one-click Forge install, and tip row — launcher v1 closed.
+              </li>
+              <li>
+                <span class="news-tag">v1.0</span>
+                Onyx Launcher initial release — auth, settings, and optimized launch pipeline.
+              </li>
+              <li>
+                <span class="news-tag">Client</span>
+                Hypixel-safe modules, Mod Menu, HUD editor, and Onyx cape system.
+              </li>
+            </ul>
+            <button id="btn-discord-home" class="btn btn-ghost" type="button">Join Discord</button>
+          </article>
+
+          <article class="panel stats-panel">
+            <h2>Your Stats</h2>
+            <div id="stats-preview" class="stats-preview">
+              <p class="muted" id="stats-message">Sign in with Microsoft to preview ranked stats.</p>
+            </div>
+          </article>
+        </div>
+
+        <div class="season-strip" id="season-strip">
+          <div class="season-strip-copy">
+            <span class="season-label">Season</span>
+            <span class="season-title">Ranked Bedwars</span>
+            <span class="season-blurb">Queue up, climb ELO, and climb the ladder — 1.8.9 Forge only.</span>
+          </div>
+          <button id="btn-discord-season" class="btn btn-ghost compact" type="button">Discord</button>
+        </div>
+
+        <div class="tip-row" id="tip-row">
+          <div class="tip-row-copy">
+            <span class="tip-label">Tip</span>
+            <span class="tip-text">Join Hypixel → <code>/play bedwars</code> — ranked queue opens from there when the season is live.</span>
+          </div>
+          <span id="api-status-chip" class="status-chip muted">API…</span>
+        </div>
+
+        <div class="play-area">
+          <div id="ready-strip" class="ready-strip" aria-live="polite">
+            <div class="ready-chips">
+              <span id="ready-java" class="ready-chip">Java…</span>
+              <span id="ready-forge" class="ready-chip">Forge…</span>
+              <span id="ready-client" class="ready-chip">Client…</span>
+            </div>
+            <div class="ready-actions">
+              <button id="btn-install-forge" class="btn btn-primary compact hidden" type="button">
+                Install Forge 1.8.9
+              </button>
+              <button id="btn-refresh-ready" class="btn btn-ghost compact" type="button">Refresh</button>
+            </div>
+          </div>
+          <button id="btn-play" class="btn btn-play" type="button">PLAY</button>
+          <div id="launch-progress" class="launch-progress hidden">
+            <div class="progress-track">
+              <div id="progress-fill" class="progress-fill"></div>
+            </div>
+            <p id="progress-label" class="progress-label">Preparing…</p>
+          </div>
+          <p id="launch-error" class="launch-error hidden"></p>
+        </div>
+      </section>
+
+      <section id="view-settings" class="view hidden">
+        <header class="view-header">
+          <h1>Settings</h1>
+          <p class="muted">Launch and account preferences</p>
+        </header>
+
+        <div class="settings-stack">
+          <div class="setting-row">
+            <label for="ram-slider">RAM Allocation</label>
+            <div class="setting-control">
+              <input id="ram-slider" type="range" min="2" max="8" step="1" value="4" />
+              <span id="ram-value" class="setting-value">4 GB</span>
+            </div>
+          </div>
+
+          <div class="setting-row">
+            <label for="java-path">Java Path</label>
+            <div class="setting-field">
+              <div class="setting-control path-row">
+                <input id="java-path" type="text" placeholder="Leave empty to auto-detect" />
+                <button id="btn-browse-java" class="btn btn-ghost compact" type="button">Browse</button>
+              </div>
+              <p id="java-resolved-hint" class="setting-hint muted"></p>
+            </div>
+          </div>
+
+          <div class="setting-row">
+            <label for="game-dir">Game Directory</label>
+            <div class="setting-control path-row">
+              <input id="game-dir" type="text" />
+              <button id="btn-browse-game-dir" class="btn btn-ghost compact" type="button">Browse</button>
+            </div>
+          </div>
+
+          <div class="setting-row hidden" id="theme-row">
+            <label for="theme-select">Theme</label>
+            <div class="setting-control">
+              <select id="theme-select">
+                <option value="onyx-dark">Onyx Dark</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="account-card">
+            <div class="account-info">
+              <img id="account-avatar" class="avatar hidden" alt="" width="40" height="40" />
+              <div>
+                <div id="account-name" class="account-name">—</div>
+                <div id="account-type" class="muted">—</div>
+              </div>
+            </div>
+            <div class="account-actions">
+              <button id="btn-settings-microsoft" class="btn btn-primary compact hidden" type="button">
+                Sign in with Microsoft
+              </button>
+              <button id="btn-sign-out" class="btn btn-secondary compact" type="button">Sign Out</button>
+            </div>
+          </div>
+
+          <button id="btn-save-settings" class="btn btn-primary compact" type="button">Save Settings</button>
+        </div>
+      </section>
+    </main>
+
+    <footer class="bottom-bar">
+      <span id="footer-version">v1.0.0</span>
+      <span class="dot">·</span>
+      <button id="btn-discord-footer" class="link-quiet" type="button">Discord</button>
+      <span class="spacer"></span>
+      <span id="footer-account">Not signed in</span>
+    </footer>
+  </div>
+
+  <div id="toast" class="toast hidden" role="status"></div>
+
+  <script src="particles.js"></script>
+  <script src="authModal.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

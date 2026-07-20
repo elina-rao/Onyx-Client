@@ -1,0 +1,33 @@
+{
+  "name": "onyx-launcher",
+  "productName": "Onyx Launcher",
+  "version": "1.0.1",
+  "description": "Onyx Client launcher — Ranked Bedwars 1.8.9",
+  "main": "src/main/main.js",
+  "author": "OnyxClient Team",
+  "license": "UNLICENSED",
+  "private": true,
+  "scripts": {
+    "start": "node scripts/run-electron.js",
+    "dev": "node scripts/run-electron.js --dev",
+    "open": "open \"Onyx Launcher.app\"",
+    "open:dist": "open \"dist/mac-arm64/Onyx Launcher.app\" 2>/dev/null || open \"dist/mac-arm64/OnyxLauncher.app\" 2>/dev/null || open \"dist/mac/Onyx Launcher.app\" 2>/dev/null || open \"dist/mac/OnyxLauncher.app\" 2>/dev/null || open \"dist/mac-x64/Onyx Launcher.app\" 2>/dev/null || open \"dist/mac-x64/OnyxLauncher.app\"",
+    "install:app": "bash scripts/install-app.sh",
+    "build": "electron-builder",
+    "build:mac": "electron-builder --mac",
+    "build:win": "electron-builder --win",
+    "pack": "electron-builder --dir",
+    "pack:install": "npm run pack && npm run install:app"
+  },
+  "dependencies": {
+    "keytar": "^7.9.0",
+    "uuid": "^9.0.1"
+  },
+  "devDependencies": {
+    "electron": "^28.3.3",
+    "electron-builder": "^24.13.3"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

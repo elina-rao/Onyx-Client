@@ -1,0 +1,2 @@
+# Place OnyxLoader.jar here (or under the game directory) so the Play button can launch it.
+# Optional: bundle a JRE 8 under jre/ (bin/java or bin/java.exe).

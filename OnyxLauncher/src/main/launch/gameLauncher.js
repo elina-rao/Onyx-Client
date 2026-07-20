@@ -1,0 +1,294 @@
+const fs = require('fs');
+const path = require('path');
+const os = require('os');
+const { app } = require('electron');
+const { buildJvmFlags } = require('./jvmFlags');
+const config = require('../config/launcherConfig');
+const sessionStore = require('../auth/sessionStore');
+const microsoftAuth = require('../auth/microsoftAuth');
+const {
+  launchForge,
+  resolveMinecraftRoot,
+  hasForgeInstall,
+  defaultMinecraftDir,
+  findClientJarCandidates,
+  ensureClientMod
+} = require('./forgeLauncher');
+
+function resourcesDir() {
+  if (app.isPackaged) {
+    return path.join(process.resourcesPath, 'resources');
+  }
+  return path.join(app.getAppPath(), 'resources');
+}
+
+function resolveLoaderJar(gameDir) {
+  const candidates = [
+    path.join(gameDir, 'OnyxLoader.jar'),
+    path.join(gameDir, 'loader', 'OnyxLoader.jar'),
+    path.join(resourcesDir(), 'OnyxLoader.jar')
+  ];
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
+function resolveJavaPath(configured) {
+  if (configured && fs.existsSync(configured)) {
+    return configured;
+  }
+
+  const home = os.homedir();
+  const candidates = [];
+
+  // Bundled JRE
+  candidates.push(
+    path.join(
+      resourcesDir(),
+      'jre',
+      process.platform === 'win32' ? 'bin/java.exe' : 'bin/java'
+    )
+  );
+
+  // Project / sibling Zulu JDK 8 (dev)
+  const appPath = app.getAppPath();
+  candidates.push(
+    path.join(
+      appPath,
+      '..',
+      '.jdks',
+      'zulu8.88.0.19-ca-jdk8.0.462-macosx_aarch64',
+      'bin',
+      'java'
+    )
+  );
+  candidates.push(
+    path.join(
+      home,
+      'Documents',
+      'Onyx Client Beta',
+      '.jdks',
+      'zulu8.88.0.19-ca-jdk8.0.462-macosx_aarch64',
+      'bin',
+      'java'
+    )
+  );
+
+  if (process.env.JAVA_HOME) {
+    candidates.push(
+      path.join(
+        process.env.JAVA_HOME,
+        'bin',
+        process.platform === 'win32' ? 'java.exe' : 'java'
+      )
+    );
+  }
+
+  // macOS java_home for 1.8
+  if (process.platform === 'darwin') {
+    try {
+      const { execFileSync } = require('child_process');
+      const jhome = execFileSync('/usr/libexec/java_home', ['-v', '1.8'], {
+        encoding: 'utf8'
+      }).trim();
+      if (jhome) {
+        candidates.push(path.join(jhome, 'bin', 'java'));
+      }
+    } catch (_) {
+      /* no Java 8 via java_home */
+    }
+  }
+
+  for (const candidate of candidates) {
+    if (candidate && fs.existsSync(candidate)) {
+      return candidate;
+    }
+  }
+
+  return process.platform === 'win32' ? 'java.exe' : 'java';
+}
+
+function ensureOptionsTxt(gameDir) {
+  const optionsPath = path.join(gameDir, 'options.txt');
+  try {
+    fs.mkdirSync(gameDir, { recursive: true });
+    if (!fs.existsSync(optionsPath)) {
+      fs.writeFileSync(
+        optionsPath,
+        ['enableVsync:false', 'maxFps:260', 'fov:70'].join('\n') + '\n',
+        'utf8'
+      );
+      return;
+    }
+    let text = fs.readFileSync(optionsPath, 'utf8');
+    const ensure = (key, value) => {
+      const re = new RegExp(`^${key}:.*$`, 'm');
+      if (re.test(text)) {
+        text = text.replace(re, `${key}:${value}`);
+      } else {
+        text += `\n${key}:${value}`;
+      }
+    };
+    ensure('enableVsync', 'false');
+    ensure('maxFps', '260');
+    fs.writeFileSync(optionsPath, text.trim() + '\n', 'utf8');
+  } catch (err) {
+    console.error('[launch] Failed to write options.txt:', err.message);
+  }
+}
+
+async function resolveLaunchSession() {
+  const session = await sessionStore.getActiveSession();
+  if (!session) {
+    return {
+      ok: false,
+      error: 'Not signed in. Open the launcher and sign in (Microsoft or Guest) first.'
+    };
+  }
+
+  if (session.guest || session.type === 'guest') {
+    return {
+      ok: true,
+      session: {
+        username: session.username,
+        uuid: session.uuid,
+        accessToken: '0',
+        userType: 'legacy',
+        guest: true
+      }
+    };
+  }
+
+  // Microsoft — refresh to get a live Minecraft access token
+  try {
+    const creds = await microsoftAuth.getLaunchCredentials();
+    if (creds && creds.ok) {
+      return {
+        ok: true,
+        session: {
+          username: creds.username,
+          uuid: creds.uuid,
+          accessToken: creds.accessToken,
+          userType: 'msa',
+          guest: false
+        }
+      };
+    }
+  } catch (err) {
+    console.warn('[launch] MS token refresh failed, using offline fallback:', err.message);
+  }
+
+  // Fallback offline-style launch with saved profile name (singleplayer still works)
+  return {
+    ok: true,
+    session: {
+      username: session.username,
+      uuid: session.uuid || '00000000000000000000000000000000',
+      accessToken: '0',
+      userType: 'msa',
+      guest: false
+    }
+  };
+}
+
+/**
+ * @param {object} opts
+ * @param {(payload: object) => void} onProgress
+ */
+async function launchGame(opts, onProgress) {
+  const cfg = config.load();
+  const gameDir = (opts && opts.gameDir) || cfg.gameDir;
+  const ramGb = (opts && opts.ramGb) || cfg.ramGb || 4;
+  const javaPath = resolveJavaPath((opts && opts.javaPath) || cfg.javaPath);
+  const appPath = app.getAppPath();
+
+  onProgress({ stage: 'session', message: 'Preparing account…', percent: 5 });
+  const auth = await resolveLaunchSession();
+  if (!auth.ok) {
+    return auth;
+  }
+
+  onProgress({ stage: 'java', message: `Using Java: ${javaPath}`, percent: 10 });
+
+  // Sync client jar into gameDir/mods from build or resources
+  const clientCandidates = findClientJarCandidates(appPath);
+  for (const candidate of clientCandidates) {
+    if (fs.existsSync(candidate)) {
+      ensureClientMod(gameDir, candidate);
+      break;
+    }
+  }
+
+  ensureOptionsTxt(gameDir);
+
+  const mcRoot = resolveMinecraftRoot(gameDir);
+  if (hasForgeInstall(mcRoot)) {
+    onProgress({ stage: 'forge', message: 'Launching Forge 1.8.9…', percent: 20 });
+    return launchForge(
+      {
+        javaPath,
+        gameDir,
+        minecraftRoot: mcRoot,
+        ramGb,
+        session: auth.session,
+        appPath
+      },
+      onProgress
+    );
+  }
+
+  // Fallback: OnyxLoader bootstrap (only works if it can find a full classpath)
+  onProgress({ stage: 'checking', message: 'Forge missing — trying OnyxLoader…', percent: 25 });
+  const loaderJar = resolveLoaderJar(gameDir);
+  if (!loaderJar) {
+    return {
+      ok: false,
+      error:
+        `Forge 1.8.9 not found.\n\nInstall Forge 1.8.9-11.15.1.2318 into:\n${defaultMinecraftDir()}\n\nor set Game Directory in Settings to your Minecraft folder that already has Forge.`
+    };
+  }
+
+  const flags = buildJvmFlags(ramGb);
+  const args = [...flags, '-jar', loaderJar, '--gameDir', gameDir];
+
+  return new Promise((resolve) => {
+    const { spawn } = require('child_process');
+    let child;
+    try {
+      child = spawn(javaPath, args, {
+        cwd: gameDir,
+        env: { ...process.env },
+        detached: true,
+        stdio: 'ignore'
+      });
+    } catch (err) {
+      resolve({
+        ok: false,
+        error: `Failed to start Java (${javaPath}): ${err.message}`
+      });
+      return;
+    }
+    child.on('error', (err) => {
+      resolve({
+        ok: false,
+        error: `Java process error: ${err.message}`
+      });
+    });
+    child.unref();
+    onProgress({ stage: 'launched', message: 'Game launched', percent: 100 });
+    resolve({ ok: true, pid: child.pid, loaderJar, javaPath, args });
+  });
+}
+
+module.exports = {
+  launchGame,
+  resolveLoaderJar,
+  resolveJavaPath,
+  resourcesDir,
+  defaultMinecraftDir,
+  hasForgeInstall,
+  resolveMinecraftRoot
+};

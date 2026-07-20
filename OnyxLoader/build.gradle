@@ -1,0 +1,40 @@
+plugins {
+    id 'java'
+}
+
+group = 'com.onyxloader'
+version = '1.0'
+sourceCompatibility = targetCompatibility = '1.8'
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    compile 'org.ow2.asm:asm:5.2'
+    compile 'org.ow2.asm:asm-commons:5.2'
+    compile 'org.ow2.asm:asm-tree:5.2'
+    compile 'org.ow2.asm:asm-util:5.2'
+}
+
+jar {
+    archiveName = "OnyxLoader-${version}.jar"
+    manifest {
+        attributes(
+            'Main-Class': 'com.onyxloader.OnyxLoader',
+            'Implementation-Title': 'OnyxLoader',
+            'Implementation-Version': version
+        )
+    }
+    from {
+        configurations.compile.collect { it.isDirectory() ? it : zipTree(it) }
+    }
+    exclude 'META-INF/*.SF', 'META-INF/*.DSA', 'META-INF/*.RSA'
+}
+
+task copyToLauncher(type: Copy) {
+    dependsOn jar
+    from("${buildDir}/libs/OnyxLoader-${version}.jar")
+    into "${projectDir}/../OnyxLauncher/resources"
+    rename { String fileName -> 'OnyxLoader.jar' }
+}

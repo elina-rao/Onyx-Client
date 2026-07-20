@@ -1,0 +1,9 @@
+{
+  "required": false,
+  "minVersion": "0.7",
+  "package": "com.onyxclient.mixins",
+  "refmap": "mixins.onyxclient.refmap.json",
+  "compatibilityLevel": "JAVA_8",
+  "mixins": [],
+  "client": []
+}

@@ -1,0 +1,16 @@
+[
+{
+  "modid": "onyxclient",
+  "name": "Onyx Client",
+  "description": "A sleek, purple-themed 1.8.9 PvP client. Clean. Fast. Onyx.",
+  "version": "${version}",
+  "mcversion": "${mcversion}",
+  "url": "",
+  "updateUrl": "",
+  "authorList": ["OnyxClient Team"],
+  "credits": "",
+  "logoFile": "pack.png",
+  "screenshots": [],
+  "dependencies": []
+}
+]

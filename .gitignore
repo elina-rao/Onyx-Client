@@ -1,0 +1,38 @@
+# Gradle
+.gradle/
+build/
+out/
+run/
+.jdks/
+
+# IDE
+.idea/
+*.iml
+*.ipr
+*.iws
+.classpath
+.project
+.settings/
+bin/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Minecraft / Forge
+logs/
+crash-reports/
+eclipse/
+
+# Secrets
+config/onyxclient/settings.json
+
+# OnyxLauncher (Electron)
+OnyxLauncher/node_modules/
+OnyxLauncher/dist/
+OnyxLauncher/out/
+OnyxLoader/.gradle/
+OnyxLoader/build/
+OnyxLauncher/resources/OnyxLoader.jar
+OnyxLauncher/resources/jre/
+**/OptiFine*.jar

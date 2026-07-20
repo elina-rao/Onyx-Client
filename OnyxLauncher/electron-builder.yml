@@ -1,0 +1,63 @@
+appId: com.onyxclient.launcher
+productName: Onyx Launcher
+copyright: Copyright © OnyxClient Team
+
+directories:
+  output: dist
+  buildResources: assets
+
+# Prefer PNG when present; SVG alone is not enough for electron-builder on macOS
+icon: assets/icons/icon.png
+
+files:
+  - src/**/*
+  - package.json
+  - assets/**/*
+
+# Native modules cannot load from inside asar
+asarUnpack:
+  - "**/*.node"
+  - "**/keytar/build/Release/**"
+
+extraResources:
+  - from: resources
+    to: resources
+    filter:
+      - "**/*"
+
+mac:
+  category: public.app-category.games
+  executableName: OnyxLauncher
+  target:
+    - dmg
+  artifactName: OnyxLauncher-${version}-${arch}.${ext}
+  extendInfo:
+    CFBundleName: Onyx Launcher
+    CFBundleDisplayName: Onyx Launcher
+    CFBundleIdentifier: com.onyxclient.launcher
+
+win:
+  target:
+    - nsis
+  artifactName: OnyxLauncher-Setup-${version}.${ext}
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Onyx Launcher
+
+dmg:
+  contents:
+    - x: 130
+      y: 220
+    - x: 410
+      y: 220
+      type: link
+      path: /Applications
+
+linux:
+  target:
+    - AppImage
+  category: Game
