@@ -123,6 +123,8 @@ public class ModMenu extends GuiScreen {
 
     @Override
     public void drawScreen(int mouseX, int mouseY, float partialTicks) {
+        RenderUtils.clearScissor();
+
         float progress = AnimationUtils.getMenuOpenProgress();
         int alpha = AnimationUtils.getScaledAlpha(220, progress);
         ConfigManager.ClientConfig cfg = OnyxClient.getConfigManager().getConfig();
@@ -153,39 +155,48 @@ public class ModMenu extends GuiScreen {
         updateScrollDrag(lx, ly);
 
         GlStateManager.pushMatrix();
-        ClientUiScale.applyCenteredScale(width, height);
-        if (cfg.menuAnimations) {
-            applyOpenAnimScale(panelX, panelY, panelW, panelH, progress);
+        try {
+            ClientUiScale.applyCenteredScale(width, height);
+            if (cfg.menuAnimations) {
+                applyOpenAnimScale(panelX, panelY, panelW, panelH, progress);
+            }
+
+            RenderUtils.drawSoftShadow(panelX, panelY, panelW, panelH, PANEL_RADIUS, 3);
+            RenderUtils.drawRoundedRect(panelX, panelY, panelW, panelH, PANEL_RADIUS,
+                    Colors.withAlpha(Colors.BG_DEEP, alpha));
+            RenderUtils.drawRoundedOutline(panelX, panelY, panelW, panelH, PANEL_RADIUS, 1.0F,
+                    Colors.withAlpha(Colors.BORDER, 160));
+
+            drawHeader(panelX, panelY, panelW, lx, ly);
+            drawTabs(panelX, panelY + HEADER_H, panelW, lx, ly);
+
+            int contentY = panelY + HEADER_H + TAB_H;
+            int contentH = panelH - HEADER_H - TAB_H;
+            int clipH = Math.max(0, contentH - PANEL_RADIUS);
+            layoutTileH = tileHeightForClip(clipH);
+
+            if (topTab == TopTab.MODS) {
+                drawModsTab(panelX, contentY, panelW, clipH, lx, ly);
+            } else if (topTab == TopTab.SETTINGS) {
+                drawSettingsTab(panelX, contentY, panelW, clipH, lx, ly);
+            } else {
+                drawProfilesTab(panelX, contentY, panelW, clipH, lx, ly);
+            }
+
+            if (statusTicks > 0 && !statusMessage.isEmpty()) {
+                fontRendererObj.drawString(statusMessage, panelX + 10, panelY + panelH - 12, Colors.ACCENT_BRIGHT);
+            }
+        } finally {
+            RenderUtils.clearScissor();
+            GlStateManager.popMatrix();
         }
-
-        RenderUtils.drawSoftShadow(panelX, panelY, panelW, panelH, PANEL_RADIUS, 3);
-        RenderUtils.drawRoundedRect(panelX, panelY, panelW, panelH, PANEL_RADIUS,
-                Colors.withAlpha(Colors.BG_DEEP, alpha));
-        RenderUtils.drawRoundedOutline(panelX, panelY, panelW, panelH, PANEL_RADIUS, 1.0F,
-                Colors.withAlpha(Colors.BORDER, 160));
-
-        drawHeader(panelX, panelY, panelW, lx, ly);
-        drawTabs(panelX, panelY + HEADER_H, panelW, lx, ly);
-
-        int contentY = panelY + HEADER_H + TAB_H;
-        int contentH = panelH - HEADER_H - TAB_H;
-        int clipH = Math.max(0, contentH - PANEL_RADIUS);
-        layoutTileH = tileHeightForClip(clipH);
-
-        if (topTab == TopTab.MODS) {
-            drawModsTab(panelX, contentY, panelW, clipH, lx, ly);
-        } else if (topTab == TopTab.SETTINGS) {
-            drawSettingsTab(panelX, contentY, panelW, clipH, lx, ly);
-        } else {
-            drawProfilesTab(panelX, contentY, panelW, clipH, lx, ly);
-        }
-
-        if (statusTicks > 0 && !statusMessage.isEmpty()) {
-            fontRendererObj.drawString(statusMessage, panelX + 10, panelY + panelH - 12, Colors.ACCENT_BRIGHT);
-        }
-
-        GlStateManager.popMatrix();
         super.drawScreen(mouseX, mouseY, partialTicks);
+    }
+
+    @Override
+    public void onGuiClosed() {
+        RenderUtils.clearScissor();
+        super.onGuiClosed();
     }
 
     @Override
@@ -220,16 +231,11 @@ public class ModMenu extends GuiScreen {
         GlStateManager.translate(-(x + w / 2.0F), -(y + h / 2.0F), 0);
     }
 
-    /** Scissor in screen GUI space for content drawn under {@link ClientUiScale}. */
+    /**
+     * GL scissor is unreliable on Mac Retina / OptiFine — soft-clip in draw paths instead.
+     */
     private void enableLayoutScissor(int x, int y, int w, int h) {
-        float s = ClientUiScale.factor();
-        float cx = width / 2.0F;
-        float cy = height / 2.0F;
-        int sx = Math.round(cx + (x - cx) * s);
-        int sy = Math.round(cy + (y - cy) * s);
-        int sw = Math.max(0, Math.round(w * s));
-        int sh = Math.max(0, Math.round(h * s));
-        RenderUtils.enableScissor(sx, sy, sw, sh);
+        // no-op
     }
 
     private void drawHeader(int x, int y, int w, int mouseX, int mouseY) {
@@ -345,15 +351,11 @@ public class ModMenu extends GuiScreen {
 
         clampModsScroll(gridW, clipH);
 
-        enableLayoutScissor(panelX + CLIP_INSET, contentY, SIDEBAR_W - CLIP_INSET, clipH);
         drawModFilters(panelX, contentY, SIDEBAR_W, clipH, mouseX, mouseY);
-        RenderUtils.disableScissor();
 
         RenderUtils.drawVerticalLine(panelX + SIDEBAR_W, contentY + 6, clipH - 12, Colors.DIVIDER);
 
-        enableLayoutScissor(gridX + CLIP_INSET, contentY, Math.max(0, gridW - CLIP_INSET * 2), clipH);
         drawModuleGrid(gridX, contentY, gridW, clipH, mouseX, mouseY);
-        RenderUtils.disableScissor();
 
         drawScrollbar(gridX, contentY, gridW, clipH, maxModsScroll(gridW, clipH), scrollOffset, ScrollDrag.MODS);
 
@@ -523,9 +525,7 @@ public class ModMenu extends GuiScreen {
 
     private void drawSettingsTab(int panelX, int contentY, int panelW, int clipH, int mouseX, int mouseY) {
         int navH = clipH - EDIT_HUD_FOOTER;
-        enableLayoutScissor(panelX + CLIP_INSET, contentY, SIDEBAR_W - CLIP_INSET, navH);
         drawSettingsSidebar(panelX, contentY, SIDEBAR_W, navH, mouseX, mouseY);
-        RenderUtils.disableScissor();
 
         // Edit HUD footer (pinned)
         int btnY = contentY + clipH - 24;
@@ -541,9 +541,7 @@ public class ModMenu extends GuiScreen {
 
         int listX = panelX + SIDEBAR_W;
         int listW = panelW - SIDEBAR_W;
-        enableLayoutScissor(listX + CLIP_INSET, contentY, Math.max(0, listW - CLIP_INSET * 2), clipH);
         drawSettingsList(listX, contentY, listW, clipH, mouseX, mouseY);
-        RenderUtils.disableScissor();
     }
 
     private void drawSettingsSidebar(int x, int y, int w, int h, int mouseX, int mouseY) {

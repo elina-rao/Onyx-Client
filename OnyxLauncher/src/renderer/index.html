@@ -64,6 +64,7 @@
       </div>
       <nav class="nav">
         <button class="nav-item active" data-view="home" type="button">Home</button>
+        <button class="nav-item" data-view="skins" type="button">Skins</button>
         <button class="nav-item" data-view="settings" type="button">Settings</button>
       </nav>
       <div class="sidebar-footer">
@@ -82,6 +83,14 @@
           <article class="panel news-panel">
             <h2>Changelog</h2>
             <ul id="news-list" class="news-list">
+              <li>
+                <span class="news-tag">v1.0.2</span>
+                Skin Changer — upload, copy by username, apply to account; in-client Skin Changer too.
+              </li>
+              <li>
+                <span class="news-tag">v1.0.2</span>
+                Stats by IGN, Settings for API/Discord/server IP, and Test API — Ranked Bedwars stats bridge.
+              </li>
               <li>
                 <span class="news-tag">v1.0.1</span>
                 Play readiness strip, one-click Forge install, and tip row — launcher v1 closed.
@@ -110,7 +119,7 @@
           <div class="season-strip-copy">
             <span class="season-label">Season</span>
             <span class="season-title">Ranked Bedwars</span>
-            <span class="season-blurb">Queue up, climb ELO, and climb the ladder — 1.8.9 Forge only.</span>
+            <span class="season-blurb">Onyx Ranked Bedwars — queue on Discord, play on <code>eu.onyxrbw.com</code>.</span>
           </div>
           <button id="btn-discord-season" class="btn btn-ghost compact" type="button">Discord</button>
         </div>
@@ -118,7 +127,7 @@
         <div class="tip-row" id="tip-row">
           <div class="tip-row-copy">
             <span class="tip-label">Tip</span>
-            <span class="tip-text">Join Hypixel → <code>/play bedwars</code> — ranked queue opens from there when the season is live.</span>
+            <span class="tip-text">Register on Discord, then join <code>eu.onyxrbw.com</code> — stats sync by IGN via the Onyx RBW bot.</span>
           </div>
           <span id="api-status-chip" class="status-chip muted">API…</span>
         </div>
@@ -145,6 +154,56 @@
             <p id="progress-label" class="progress-label">Preparing…</p>
           </div>
           <p id="launch-error" class="launch-error hidden"></p>
+        </div>
+      </section>
+
+      <section id="view-skins" class="view hidden">
+        <header class="view-header">
+          <h1>Skins</h1>
+          <p class="muted">Upload, copy by username, and apply to your Minecraft account</p>
+        </header>
+
+        <div class="skins-layout">
+          <div class="skins-library panel">
+            <div class="skins-library-head">
+              <h2>Library</h2>
+              <button id="btn-skin-import" class="btn btn-ghost compact" type="button">Upload PNG</button>
+            </div>
+            <div id="skins-grid" class="skins-grid"></div>
+            <p id="skins-empty" class="muted skins-empty hidden">No skins yet — upload a PNG or copy from a username.</p>
+          </div>
+
+          <div class="skins-detail panel">
+            <canvas id="skin-preview" class="skin-preview" width="192" height="192" aria-label="Skin preview"></canvas>
+            <p id="skin-selected-name" class="skin-selected-name">No skin selected</p>
+
+            <div class="skin-model-row">
+              <span class="muted">Model</span>
+              <div class="skin-model-toggle">
+                <button id="btn-model-classic" class="btn btn-ghost compact active" type="button">Classic</button>
+                <button id="btn-model-slim" class="btn btn-ghost compact" type="button">Slim</button>
+              </div>
+            </div>
+
+            <div class="skin-copy-row">
+              <input
+                id="skin-copy-ign"
+                type="text"
+                maxlength="16"
+                placeholder="Copy from username"
+                spellcheck="false"
+                autocomplete="off"
+              />
+              <button id="btn-skin-copy" class="btn btn-secondary compact" type="button">Copy</button>
+            </div>
+
+            <div class="skin-actions">
+              <button id="btn-skin-apply" class="btn btn-primary" type="button">Apply to account</button>
+              <button id="btn-skin-reset" class="btn btn-ghost compact" type="button">Reset</button>
+              <button id="btn-skin-delete" class="btn btn-ghost compact" type="button">Delete</button>
+            </div>
+            <p id="skin-status" class="setting-hint muted"></p>
+          </div>
         </div>
       </section>
 
@@ -179,6 +238,32 @@
             <div class="setting-control path-row">
               <input id="game-dir" type="text" />
               <button id="btn-browse-game-dir" class="btn btn-ghost compact" type="button">Browse</button>
+            </div>
+          </div>
+
+          <div class="setting-row">
+            <label for="api-endpoint">API Endpoint</label>
+            <div class="setting-field">
+              <div class="setting-control path-row">
+                <input id="api-endpoint" type="text" placeholder="https://api.onyxrbw.com" spellcheck="false" />
+                <button id="btn-test-api" class="btn btn-ghost compact" type="button">Test API</button>
+              </div>
+              <p class="setting-hint muted">Onyx Ranked Bedwars stats API base URL.</p>
+            </div>
+          </div>
+
+          <div class="setting-row">
+            <label for="discord-invite">Discord Invite</label>
+            <div class="setting-control path-row">
+              <input id="discord-invite" type="text" placeholder="https://discord.gg/onyxrbw" spellcheck="false" />
+            </div>
+          </div>
+
+          <div class="setting-row">
+            <label for="server-ip">Server IP</label>
+            <div class="setting-control path-row">
+              <input id="server-ip" type="text" placeholder="eu.onyxrbw.com" spellcheck="false" />
+              <button id="btn-copy-server-ip" class="btn btn-ghost compact" type="button">Copy</button>
             </div>
           </div>
 

@@ -10,8 +10,8 @@ import net.minecraft.client.renderer.EntityRenderer;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
-import org.spongepowered.asm.mixin.injection.ModifyVariable;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 @Mixin(EntityRenderer.class)
 public class MixinEntityRenderer {
@@ -37,15 +37,16 @@ public class MixinEntityRenderer {
         }
     }
 
-    @ModifyVariable(method = "getFOVModifier", at = @At("STORE"), ordinal = 0)
-    private float onyx$modifyFov(float fov) {
+    @Inject(method = "getFOVModifier", at = @At("RETURN"), cancellable = true)
+    private void onyx$modifyFovReturn(float partialTicks, boolean useFovSetting, CallbackInfoReturnable<Float> cir) {
+        float fov = cir.getReturnValueF();
         if (FOVChangerModule.INSTANCE != null && FOVChangerModule.INSTANCE.isEnabled()) {
-            fov = FOVChangerModule.INSTANCE.getCustomFov();
+            fov = FOVChangerModule.INSTANCE.computeFov(partialTicks);
         }
         if (OptiFineSettingsModule.INSTANCE != null && OptiFineSettingsModule.INSTANCE.isEnabled()) {
             fov = OptiFineSettingsModule.INSTANCE.getZoomFov(fov);
         }
-        return fov;
+        cir.setReturnValue(fov);
     }
 
     @Inject(method = "renderWorldPass", at = @At("TAIL"))
@@ -82,6 +83,44 @@ public class MixinEntityRenderer {
                 float density = 0.1F * (1.0F - transparency) + 0.01F * transparency;
                 net.minecraft.client.renderer.GlStateManager.setFogDensity(density);
             }
+        }
+    }
+
+    @Inject(method = "renderRainSnow", at = @At("HEAD"), cancellable = true)
+    private void onyx$skipRainSnow(float partialTicks, CallbackInfo ci) {
+        try {
+            if (com.onyxclient.OnyxClient.getConfigManager() != null
+                    && !com.onyxclient.OnyxClient.getConfigManager().getConfig().weather) {
+                ci.cancel();
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
+    @Inject(method = "addRainParticles", at = @At("HEAD"), cancellable = true)
+    private void onyx$skipRainParticles(CallbackInfo ci) {
+        try {
+            if (com.onyxclient.OnyxClient.getConfigManager() != null
+                    && !com.onyxclient.OnyxClient.getConfigManager().getConfig().weather) {
+                ci.cancel();
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
+    @Inject(method = "orientCamera", at = @At("HEAD"))
+    private void onyx$perspectivePre(float partialTicks, CallbackInfo ci) {
+        com.onyxclient.modules.visual.PerspectiveModule persp = com.onyxclient.modules.visual.PerspectiveModule.INSTANCE;
+        if (persp != null && persp.isActive()) {
+            persp.applyCameraToViewEntity();
+        }
+    }
+
+    @Inject(method = "orientCamera", at = @At("RETURN"))
+    private void onyx$perspectivePost(float partialTicks, CallbackInfo ci) {
+        com.onyxclient.modules.visual.PerspectiveModule persp = com.onyxclient.modules.visual.PerspectiveModule.INSTANCE;
+        if (persp != null && persp.isActive()) {
+            persp.restoreViewEntity();
         }
     }
 }

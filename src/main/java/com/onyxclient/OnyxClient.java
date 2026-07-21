@@ -46,8 +46,13 @@ public class OnyxClient {
         configManager.load();
         moduleManager.init();
         moduleManager.applyConfig(configManager.getConfig());
+        com.onyxclient.core.ModProfilePresets.ensureDefaults();
+        com.onyxclient.core.PerformancePresets.apply(configManager.getConfig().perfPreset);
         MinecraftForge.EVENT_BUS.register(this);
         MinecraftForge.EVENT_BUS.register(moduleManager);
+        com.onyxclient.core.ClientSettingsHooks.INSTANCE.register();
+        com.onyxclient.skin.SkinOverrideManager.INSTANCE.register();
+        com.onyxclient.skin.SkinOverrideManager.INSTANCE.applyActiveFromLibrary();
     }
 
     @EventHandler

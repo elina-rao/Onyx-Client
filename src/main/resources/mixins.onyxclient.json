@@ -5,5 +5,24 @@
   "refmap": "mixins.onyxclient.refmap.json",
   "compatibilityLevel": "JAVA_8",
   "mixins": [],
-  "client": []
+  "client": [
+    "MixinAbstractClientPlayer",
+    "MixinRenderPlayer",
+    "MixinGuiMainMenu",
+    "MixinEntityRenderer",
+    "MixinItemRenderer",
+    "MixinWorld",
+    "MixinRendererLivingEntity",
+    "MixinRenderManager",
+    "MixinEffectRenderer",
+    "MixinGuiScreen",
+    "MixinRenderEntityItem",
+    "MixinGuiNewChat",
+    "MixinBlockBed",
+    "MixinBlockRendererDispatcher",
+    "MixinModelPlayer",
+    "MixinRenderGlobal",
+    "MixinTileEntityRendererDispatcher",
+    "MixinFontRenderer"
+  ]
 }

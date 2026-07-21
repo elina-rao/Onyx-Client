@@ -36,10 +36,13 @@ public class ModuleManager {
         register(new FullbrightModule());
         register(new FOVChangerModule());
         register(new NametagsModule());
+        register(new HitboxesModule());
         register(new ClearWaterModule());
         register(new TimeChangerModule());
         register(new BedwarsStarsModule());
         register(new CustomCapeModule());
+        register(new PerspectiveModule());
+        register(new CustomFontModule());
 
         // Performance
         register(new FPSBoostModule());
@@ -48,6 +51,8 @@ public class ModuleManager {
         register(new NoBobbingModule());
         register(new NoHurtCamModule());
         register(new EntityCullingModule());
+        register(new TCPNoDelayModule());
+        register(new BlockHarvestParticlesModule());
 
         // HUD
         register(new ArmorStatusModule());
@@ -64,6 +69,7 @@ public class ModuleManager {
         register(new DeathInfoModule());
         register(new CooldownTimersModule());
         register(new SessionStatsModule());
+        register(new SaturationModule());
 
         // Combat
         register(new HitDelayModule());
@@ -74,14 +80,20 @@ public class ModuleManager {
         register(new SprintResetModule());
         register(new BridgeAssistModule());
         register(new ToggleSprintModule());
+        register(new ToggleSneakModule());
         register(new CompassModule());
 
         // Bedwars
         register(new ResourceOverlayModule());
+        register(new HypixelBedwarsModule());
         register(new BedStatusModule());
         register(new BedwarsTeamsModule());
+        register(new TeamUpgradesModule());
+        register(new TNTCountdownModule());
         register(new ShopQuickNavModule());
         register(new BlockOverlayModule());
+        register(new BlockCounterModule());
+        register(new BlockInfoModule());
         register(new GeneratorTimerModule());
         register(new TrapAlertModule());
 
@@ -89,12 +101,12 @@ public class ModuleManager {
         register(new DynamicFPSModule());
         register(new CustomFogModule());
         register(new ItemPhysicsModule());
-        register(new TCPNoDelayModule());
         register(new ClearGlassModule());
 
         // Customization
         register(new CustomChatModule());
         register(new Skin3DModule());
+        register(new NickHiderModule());
 
         // Stats
         register(new LiveStatsModule());
@@ -127,6 +139,9 @@ public class ModuleManager {
                 ConfigManager.HudPosition pos = OnyxClient.getConfigManager().getHudPosition(module.getName());
                 if (pos != null) {
                     hud.setHudPosition(pos.x, pos.y);
+                    if (pos.w > 0 && pos.h > 0) {
+                        hud.setHudSize(pos.w, pos.h);
+                    }
                 }
             }
         }

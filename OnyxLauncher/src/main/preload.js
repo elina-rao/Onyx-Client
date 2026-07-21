@@ -16,8 +16,18 @@ contextBridge.exposeInMainWorld('onyx', {
   installForge: () => ipcRenderer.invoke('forge:install'),
   play: () => ipcRenderer.invoke('launch:play'),
   checkUpdates: () => ipcRenderer.invoke('updater:check'),
+  installLauncherUpdate: () => ipcRenderer.invoke('updater:install-launcher'),
   openExternal: (url) => ipcRenderer.invoke('shell:open-external', url),
   getVersion: () => ipcRenderer.invoke('app:get-version'),
+  skinList: () => ipcRenderer.invoke('skin:list'),
+  skinGetData: (id) => ipcRenderer.invoke('skin:get-data', id),
+  skinImport: () => ipcRenderer.invoke('skin:import'),
+  skinCopyUsername: (username) => ipcRenderer.invoke('skin:copy-username', username),
+  skinDelete: (id) => ipcRenderer.invoke('skin:delete', id),
+  skinSetActive: (id) => ipcRenderer.invoke('skin:set-active', id),
+  skinSetModel: (model) => ipcRenderer.invoke('skin:set-model', model),
+  skinApply: () => ipcRenderer.invoke('skin:apply'),
+  skinReset: () => ipcRenderer.invoke('skin:reset'),
   onLaunchProgress: (cb) => {
     const handler = (_e, data) => cb(data);
     ipcRenderer.on('launch:progress', handler);

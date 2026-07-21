@@ -87,6 +87,7 @@ Default game directory (prefers an existing Forge install):
 
 - **Microsoft** — embedded `BrowserView` OAuth against the **Onyx Client** Azure app (`c7f954e5-3103-4f4b-89fd-24f03c746879`); refresh token stored in the OS keychain via `keytar` (never plaintext on disk).
 - Redirect URI: `https://login.microsoftonline.com/common/oauth2/nativeclient` (Azure → Authentication → Allow public client flows = Yes).
+- **Minecraft Services API** — after Xbox/XSTS, the launcher calls `api.minecraftservices.com`. Custom Azure apps often get **HTTP 403** here until Mojang approves the Client ID. Submit the Onyx app at [aka.ms/mce-reviewappid](https://aka.ms/mce-reviewappid). Until approved, use **Guest** for offline play; the auth modal will say when rejection is API approval vs missing Java ownership.
 - **Guest** — offline UUID + username in `launcher.json`; ranked/stats UI disabled.
 - Saved Microsoft sessions skip the auth modal and show a “Welcome back” toast.
 
@@ -96,6 +97,12 @@ Override the Azure client id with:
 export ONYX_MS_CLIENT_ID=your-azure-client-id
 ```
 
+Azure checklist for Microsoft login:
+
+1. App registration → Authentication → **Allow public client flows** = Yes  
+2. Redirect URI: `https://login.microsoftonline.com/common/oauth2/nativeclient`  
+3. Submit Client ID for Minecraft API access: https://aka.ms/mce-reviewappid  
+4. Account must own **Minecraft: Java Edition** (Game Pass: open the official Minecraft Launcher once to create a Java profile)
 ## First-run install
 
 On Play, the launcher downloads Minecraft **1.8.9** client files into the game directory and fetches the Forge `1.8.9-11.15.1.2318` installer when missing.
@@ -104,22 +111,42 @@ On Play, the launcher downloads Minecraft **1.8.9** client files into the game d
 
 ## Auto-update
 
-On home entry, the launcher GETs `{onyxApiEndpoint}/launcher/version`. If unreachable, it skips silently. A newer `launcher` version shows a toast (download via Discord); loader/client jars auto-apply when URLs are present. Expected JSON:
+On home entry, the launcher GETs `{onyxApiEndpoint}/launcher/version`. If unreachable, it skips silently.
+
+- **Client / loader jars** — downloaded and applied automatically when `loaderUrl` / `clientUrl` are present.
+- **Launcher app** — when `launcher` is newer than this build **and** `launcherUrl` points at a macOS `.zip` containing `Onyx Launcher.app`, the launcher downloads it, replaces `/Applications/Onyx Launcher.app`, and relaunches. Optional `launcherSha256` is verified when set.
+
+Expected JSON:
 
 ```json
 {
-  "launcher": "1.0.1",
-  "loader": "1.0.1",
-  "client": "1.0.1",
+  "launcher": "1.0.3",
+  "launcherUrl": "https://…/OnyxLauncher-mac-arm64.zip",
+  "launcherSha256": "optional-hex",
+  "loader": "1.0.2",
+  "client": "1.0.2",
   "loaderUrl": "https://…/OnyxLoader.jar",
   "clientUrl": "https://…/OnyxClient-1.8.9-v1.0.jar",
   "changelog": "…"
 }
 ```
 
+### Refresh `/Applications` from this machine (dev)
+
+After changing launcher source:
+
+```bash
+npm run pack:install
+open -a "Onyx Launcher"
+```
+
+That packs Electron and replaces `/Applications/Onyx Launcher.app` (Applications does not hot-reload from `src/`).
+
+When the Ranked stats API is reachable, set **Settings → API Endpoint** to that base URL (or point `api.onyxrbw.com` at it). Discord invite and server IP are also editable in Settings.
+
 ## Launcher v1 status
 
-**Onyx Launcher 1.0.1 closes launcher v1.** Further product work should target ranked API / client — not a broad launcher v2 (multi-account, themes, social, etc.).
+**Onyx Launcher 1.0.3** — Ranked Bedwars stats bridge + in-app launcher auto-update via `launcherUrl`. Apple-signed `electron-updater` is deferred until public distribution.
 
 ## Project layout
 
@@ -138,4 +165,4 @@ User config: `{userData}/launcher.json` (RAM, Java path, game dir, guest session
 
 ---
 
-*Onyx Launcher v1.0.1 — Clean. Fast. Onyx. (launcher v1 closed)*
+*Onyx Launcher v1.0.2 — Clean. Fast. Onyx.*

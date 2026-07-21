@@ -26,6 +26,11 @@ eclipse/
 
 # Secrets
 config/onyxclient/settings.json
+.env
+.env.*
+
+# Accidental / misplaced copies at repo root
+/main.js
 
 # OnyxLauncher (Electron)
 OnyxLauncher/node_modules/

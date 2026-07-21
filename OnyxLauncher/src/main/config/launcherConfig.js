@@ -11,7 +11,8 @@ const DEFAULTS = {
   lastUsername: '',
   guest: null,
   onyxApiEndpoint: 'https://api.onyxrbw.com',
-  discordInvite: 'https://discord.gg/onyx',
+  discordInvite: 'https://discord.gg/onyxrbw',
+  serverIp: 'eu.onyxrbw.com',
   termsUrl: 'https://onyxrbw.com/terms'
 };
 

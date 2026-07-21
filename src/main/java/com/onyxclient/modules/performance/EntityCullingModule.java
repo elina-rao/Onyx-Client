@@ -14,20 +14,38 @@ public class EntityCullingModule extends Module {
     private final Frustum frustum = new Frustum();
 
     public EntityCullingModule() {
-        super("EntityCulling", "Skip rendering off-screen entities", ModuleCategory.PERFORMANCE);
+        super("EntityCulling", "Skip rendering off-screen entities", ModuleCategory.PERFORMANCE, true);
         INSTANCE = this;
     }
 
     public boolean shouldRender(Entity entity) {
-        if (!isEnabled()) {
-            return true;
-        }
         Minecraft mc = Minecraft.getMinecraft();
         if (mc.getRenderViewEntity() == null) {
             return true;
         }
-        if (mc.getRenderViewEntity().getDistanceToEntity(entity) > distance.getValue()) {
+        if (entity == mc.getRenderViewEntity()) {
+            return true;
+        }
+
+        double maxDist = Double.MAX_VALUE;
+        boolean cull = isEnabled();
+        if (cull) {
+            maxDist = distance.getValue();
+        }
+        if (FPSBoostModule.INSTANCE != null && FPSBoostModule.INSTANCE.shouldCullDistantEntities()) {
+            cull = true;
+            maxDist = Math.min(maxDist, FPSBoostModule.INSTANCE.getReducedEntityDistance());
+        }
+        if (!cull) {
+            return true;
+        }
+
+        if (mc.getRenderViewEntity().getDistanceToEntity(entity) > maxDist) {
             return false;
+        }
+        if (!isEnabled()) {
+            // FPSBoost distance-only path — skip frustum when EntityCulling module off
+            return true;
         }
         frustum.setPosition(
                 mc.getRenderManager().viewerPosX,

@@ -14,10 +14,12 @@ files:
   - package.json
   - assets/**/*
 
-# Native modules cannot load from inside asar
+# Native modules cannot load from inside asar.
+# Unpack renderer so HTML/CSS/JS are plain files (avoids rare asar MIME / wrong-document loads).
 asarUnpack:
   - "**/*.node"
   - "**/keytar/build/Release/**"
+  - "**/src/renderer/**"
 
 extraResources:
   - from: resources

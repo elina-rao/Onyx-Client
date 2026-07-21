@@ -9,8 +9,8 @@ public class CustomFogModule extends Module {
 
     public static CustomFogModule INSTANCE;
 
-    private final BooleanSetting disableFog;
-    private final NumberSetting fogDistance;
+    public final BooleanSetting disableFog;
+    public final NumberSetting fogDistance;
 
     public CustomFogModule() {
         super("CustomFog", "Reduce or disable client fog", ModuleCategory.RENDERING);

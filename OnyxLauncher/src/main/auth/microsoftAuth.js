@@ -70,10 +70,75 @@ function postJson(url, payload, headers = {}) {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
+      Accept: 'application/json',
       'Content-Length': Buffer.byteLength(body),
       ...headers
     }
   }, body);
+}
+
+function describeApiBody(body) {
+  if (!body || typeof body !== 'object') {
+    return '';
+  }
+  return (
+    body.errorMessage ||
+    body.error_description ||
+    body.error ||
+    body.message ||
+    (body.XErr != null ? `XErr ${body.XErr}` : '') ||
+    ''
+  );
+}
+
+/** Known Xbox XSTS failure codes → short user-facing text. */
+function messageForXstsError(body) {
+  const xerr = body && body.XErr != null ? Number(body.XErr) : null;
+  switch (xerr) {
+    case 2148916233:
+      return 'This Microsoft account has no Xbox profile. Open xbox.com, create one, then try again.';
+    case 2148916238:
+      return 'This is a child account. An adult must add it to a Microsoft family and grant Xbox access.';
+    case 2148916235:
+      return 'Xbox Live is unavailable in this account’s region (or Xbox services are blocked).';
+    case 2148916236:
+      return 'This account needs adult verification on Xbox before it can sign in.';
+    case 2148916237:
+      return 'Xbox Live terms of service must be accepted. Sign in at xbox.com once, then retry.';
+    default:
+      return describeApiBody(body) || 'XSTS authorization failed';
+  }
+}
+
+function messageForMinecraftLoginFailure(status, body) {
+  const detail = describeApiBody(body);
+  console.error('[auth] login_with_xbox failed', { status, body });
+
+  if (status === 403 || /forbidden/i.test(detail)) {
+    return (
+      'Minecraft Services rejected this launcher (HTTP 403). ' +
+      'The Onyx Azure app likely needs Mojang Minecraft API approval ' +
+      '(https://aka.ms/mce-reviewappid). Guest still works for offline play.'
+    );
+  }
+
+  if (
+    status === 401 ||
+    status === 404 ||
+    /not.?found|entitlement|does not own|no profile|profile not found/i.test(detail)
+  ) {
+    return (
+      'Could not sign in to Minecraft with this Microsoft account. ' +
+      'Do you own Minecraft: Java Edition on it? ' +
+      '(Game Pass: open the official Minecraft Launcher once to create a Java profile.)' +
+      (detail ? ` (${detail})` : '')
+    );
+  }
+
+  if (detail) {
+    return `Minecraft login failed (HTTP ${status || '?'}): ${detail}`;
+  }
+  return `Minecraft login failed (HTTP ${status || 'unknown'}). Try again or use Guest.`;
 }
 
 async function exchangeCodeForTokens(code) {
@@ -115,7 +180,10 @@ async function authenticateXbox(msAccessToken) {
     TokenType: 'JWT'
   });
   if (!res.body.Token) {
-    throw new Error('Xbox Live authentication failed');
+    console.error('[auth] Xbox Live authenticate failed', { status: res.status, body: res.body });
+    throw new Error(
+      describeApiBody(res.body) || `Xbox Live authentication failed (HTTP ${res.status || '?'})`
+    );
   }
   const userHash = res.body.DisplayClaims.xui[0].uhs;
   return { token: res.body.Token, userHash };
@@ -131,7 +199,8 @@ async function getXstsToken(xboxToken) {
     TokenType: 'JWT'
   });
   if (!res.body.Token) {
-    throw new Error('XSTS authorization failed');
+    console.error('[auth] XSTS authorize failed', { status: res.status, body: res.body });
+    throw new Error(messageForXstsError(res.body));
   }
   const userHash = res.body.DisplayClaims.xui[0].uhs;
   return { token: res.body.Token, userHash };
@@ -142,17 +211,28 @@ async function loginMinecraft(userHash, xstsToken) {
     identityToken: `XBL3.0 x=${userHash};${xstsToken}`
   });
   if (!res.body.access_token) {
-    throw new Error('Minecraft login failed');
+    throw new Error(messageForMinecraftLoginFailure(res.status, res.body));
   }
   return res.body;
 }
 
 async function fetchMinecraftProfile(mcAccessToken) {
   const res = await requestJson('https://api.minecraftservices.com/minecraft/profile', {
-    headers: { Authorization: `Bearer ${mcAccessToken}` }
+    headers: {
+      Authorization: `Bearer ${mcAccessToken}`,
+      Accept: 'application/json'
+    }
   });
   if (!res.body.id || !res.body.name) {
-    throw new Error('Failed to fetch Minecraft profile (do you own the game?)');
+    console.error('[auth] Minecraft profile failed', { status: res.status, body: res.body });
+    const detail = describeApiBody(res.body);
+    throw new Error(
+      'Failed to fetch Minecraft profile. Do you own Minecraft: Java Edition on this Microsoft account?' +
+        (detail ? ` (${detail})` : '') +
+        (res.status === 403
+          ? ' If you own the game, the launcher Azure app may still need Mojang API approval.'
+          : '')
+    );
   }
   return {
     uuid: res.body.id,

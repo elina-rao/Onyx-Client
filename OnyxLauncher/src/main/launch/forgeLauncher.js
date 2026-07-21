@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const crypto = require('crypto');
 const { spawn, execFileSync } = require('child_process');
 const { buildJvmFlags } = require('./jvmFlags');
 
@@ -288,20 +289,143 @@ function substituteArgs(template, vars) {
   }).filter((t) => t.length > 0);
 }
 
+/**
+ * SHA-256 hex digest of a file. Returns null on failure.
+ */
+function sha256File(filePath) {
+  try {
+    const hash = crypto.createHash('sha256');
+    hash.update(fs.readFileSync(filePath));
+    return hash.digest('hex');
+  } catch (err) {
+    console.error(`[OnyxLauncher] Failed to hash ${filePath}: ${err.message}`);
+    return null;
+  }
+}
+
+/**
+ * True when dest is missing, empty, older, or a different SHA-256 than source.
+ */
+function needsClientJarSync(source, dest) {
+  if (!fs.existsSync(dest)) {
+    return true;
+  }
+  let srcStat;
+  let destStat;
+  try {
+    srcStat = fs.statSync(source);
+    destStat = fs.statSync(dest);
+  } catch (err) {
+    console.error(`[OnyxLauncher] Failed to stat jars for sync: ${err.message}`);
+    return true;
+  }
+  if (!destStat.isFile() || destStat.size <= 0) {
+    return true;
+  }
+  if (srcStat.size !== destStat.size || srcStat.mtimeMs > destStat.mtimeMs) {
+    return true;
+  }
+  const srcHash = sha256File(source);
+  const destHash = sha256File(dest);
+  if (!srcHash || !destHash || srcHash !== destHash) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Copy newest OnyxClient jar into mods/ with size + sha256 integrity.
+ * Logs a clear error and returns null if the copy fails.
+ */
 function ensureClientMod(mcRoot, clientJarSource) {
   const modsDir = path.join(mcRoot, 'mods');
   fs.mkdirSync(modsDir, { recursive: true });
 
   if (clientJarSource && fs.existsSync(clientJarSource)) {
+    let srcStat;
+    try {
+      srcStat = fs.statSync(clientJarSource);
+    } catch (err) {
+      console.error(
+        `[OnyxLauncher] Cannot read client jar source ${clientJarSource}: ${err.message}`
+      );
+      return null;
+    }
+    if (!srcStat.isFile() || srcStat.size <= 0) {
+      console.error(
+        `[OnyxLauncher] Client jar source is empty or invalid: ${clientJarSource} (size=${srcStat.size})`
+      );
+      return null;
+    }
+
     const dest = path.join(modsDir, path.basename(clientJarSource));
-    fs.copyFileSync(clientJarSource, dest);
-    return dest;
+    if (!needsClientJarSync(clientJarSource, dest)) {
+      console.log(`[OnyxLauncher] Client jar up to date: ${dest}`);
+      return dest;
+    }
+
+    try {
+      // Remove stale differently-named OnyxClient jars so Forge loads one copy
+      for (const name of fs.readdirSync(modsDir)) {
+        if (/^onyxclient.*\.jar$/i.test(name) && name !== path.basename(clientJarSource)) {
+          try {
+            fs.unlinkSync(path.join(modsDir, name));
+          } catch (unlinkErr) {
+            console.error(
+              `[OnyxLauncher] Failed to remove stale mod ${name}: ${unlinkErr.message}`
+            );
+          }
+        }
+      }
+      fs.copyFileSync(clientJarSource, dest);
+      const copied = fs.statSync(dest);
+      if (!copied.isFile() || copied.size <= 0) {
+        console.error(
+          `[OnyxLauncher] Client jar copy produced empty file: ${dest}`
+        );
+        return null;
+      }
+      if (copied.size !== srcStat.size) {
+        console.error(
+          `[OnyxLauncher] Client jar size mismatch after copy: expected ${srcStat.size}, got ${copied.size} (${dest})`
+        );
+        return null;
+      }
+      const srcHash = sha256File(clientJarSource);
+      const destHash = sha256File(dest);
+      if (srcHash && destHash && srcHash !== destHash) {
+        console.error(
+          `[OnyxLauncher] Client jar SHA-256 mismatch after copy:\n  src ${srcHash}\n  dst ${destHash}`
+        );
+        return null;
+      }
+      console.log(
+        `[OnyxLauncher] Synced client jar → ${dest} (${copied.size} bytes${srcHash ? `, sha256=${srcHash.slice(0, 12)}…` : ''})`
+      );
+      return dest;
+    } catch (err) {
+      console.error(
+        `[OnyxLauncher] Failed to copy client jar from ${clientJarSource} to ${dest}: ${err.message}`
+      );
+      return null;
+    }
   }
 
   // Already installed?
   const existing = fs.readdirSync(modsDir).find((n) => /^onyxclient.*\.jar$/i.test(n));
   if (existing) {
-    return path.join(modsDir, existing);
+    const existingPath = path.join(modsDir, existing);
+    try {
+      const st = fs.statSync(existingPath);
+      if (st.size <= 0) {
+        console.error(`[OnyxLauncher] Existing client jar is empty: ${existingPath}`);
+        return null;
+      }
+    } catch (err) {
+      console.error(`[OnyxLauncher] Cannot read existing client jar: ${err.message}`);
+      return null;
+    }
+    return existingPath;
   }
   return null;
 }
@@ -357,7 +481,22 @@ function findClientJarCandidates(appPath) {
   // Bundled with launcher (may lag behind a local build)
   add(path.join(appPath, 'resources', 'OnyxClient-1.8.9-v1.0.jar'));
 
-  const existing = raw.filter((p) => fs.existsSync(p));
+  const existing = raw.filter((p) => {
+    try {
+      if (!fs.existsSync(p)) {
+        return false;
+      }
+      const st = fs.statSync(p);
+      if (!st.isFile() || st.size <= 0) {
+        console.error(`[OnyxLauncher] Skipping empty/invalid client jar candidate: ${p}`);
+        return false;
+      }
+      return true;
+    } catch (err) {
+      console.error(`[OnyxLauncher] Skipping unreadable client jar candidate ${p}: ${err.message}`);
+      return false;
+    }
+  });
   existing.sort((a, b) => {
     let ma = 0;
     let mb = 0;
@@ -409,11 +548,26 @@ async function launchForge(opts, onProgress) {
   const appPath = opts.appPath || process.cwd();
   // Newest existing jar first (see findClientJarCandidates)
   const clientSource = findClientJarCandidates(appPath)[0] || null;
+  if (clientSource) {
+    console.log(`[OnyxLauncher] Using newest client jar source: ${clientSource}`);
+  }
   // Prefer copying into the actual --gameDir mods folder
   const installed = ensureClientMod(gameDir, clientSource);
+  if (clientSource && !installed) {
+    return {
+      ok: false,
+      error:
+        `Failed to sync OnyxClient jar into mods/.\nSource: ${clientSource}\nCheck launcher console for integrity/copy errors.`
+    };
+  }
   // Also ensure mcRoot mods has it when gameDir !== mcRoot
   if (path.resolve(gameDir) !== path.resolve(mcRoot)) {
-    ensureClientMod(mcRoot, clientSource || installed);
+    const rootInstalled = ensureClientMod(mcRoot, clientSource || installed);
+    if ((clientSource || installed) && !rootInstalled) {
+      console.error(
+        `[OnyxLauncher] Warning: failed to sync client jar into minecraft root mods (${mcRoot})`
+      );
+    }
     ensureOptiFine(gameDir, mcRoot);
   }
   if (!installed && !clientSource) {

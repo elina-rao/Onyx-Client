@@ -1,5 +1,8 @@
 package com.onyxclient.gui;
 
+import com.mojang.authlib.GameProfile;
+import com.mojang.authlib.minecraft.MinecraftProfileTexture;
+import com.onyxclient.core.RankedStatsClient;
 import com.onyxclient.utils.Colors;
 import com.onyxclient.utils.OnyxFont;
 import com.onyxclient.utils.RenderUtils;
@@ -8,61 +11,93 @@ import net.minecraft.client.gui.GuiButton;
 import net.minecraft.client.gui.GuiMultiplayer;
 import net.minecraft.client.gui.GuiOptions;
 import net.minecraft.client.gui.GuiScreen;
-import net.minecraft.client.gui.GuiSelectWorld;
+import net.minecraft.client.multiplayer.GuiConnecting;
+import net.minecraft.client.multiplayer.ServerData;
 import net.minecraft.client.renderer.GlStateManager;
+import net.minecraft.client.resources.DefaultPlayerSkin;
 import net.minecraft.util.ResourceLocation;
 
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Random;
+import java.util.UUID;
 
 /**
- * Launcher-matched title screen — soft atmosphere, custom typography, clean CTAs.
+ * Ranked-home title screen — soft atmosphere, custom typography, connect CTAs.
  */
 public class MainMenu extends GuiScreen {
 
+    /** Matches OnyxLauncher default serverIp (launcherConfig.js). */
+    private static final String RANKED_SERVER_IP = "eu.onyxrbw.com";
+    private static final String HYPIXEL_SERVER_IP = "mc.hypixel.net";
     private static final ResourceLocation STEVE = new ResourceLocation("textures/entity/steve.png");
-    private static final int BUTTON_COUNT = 5;
+    private static final int BUTTON_COUNT = 6;
 
     private final List<Particle> particles = new ArrayList<Particle>();
     private final Random random = new Random();
     private int tickCounter;
     private float openProgress;
+    private ResourceLocation playerSkin;
+    private boolean skinRequested;
+    private int brandDrawY;
 
     @Override
     public void initGui() {
         buttonList.clear();
+        playerSkin = null;
+        skinRequested = false;
 
         int btnW = Math.min(220, width - 40);
-        int btnH = 28;
-        int spacing = 10;
-        int footerReserve = 28;
-        int brandBlock = OnyxFont.TITLE.getHeight() + OnyxFont.SMALL.getHeight() + 28;
+        int footerReserve = 32;
+        int topPad = Math.max(18, (int) (height * 0.10F));
+        int brandGap = 10;
+        int brandBlock = OnyxFont.TITLE.getHeight() + OnyxFont.SMALL.getHeight() + brandGap;
 
-        // Fit all 5 buttons between brand and footer
-        int available = height - (int) (height * 0.16F) - brandBlock - footerReserve;
+        // Fit all 6 buttons between brand and footer — never clip Quit.
+        int available = height - topPad - brandBlock - footerReserve - 8;
+        int btnH = 28;
+        int spacing = 8;
         int stackH = BUTTON_COUNT * btnH + (BUTTON_COUNT - 1) * spacing;
         if (stackH > available && available > 0) {
-            // Shrink spacing first, then button height
-            spacing = Math.max(6, (available - BUTTON_COUNT * btnH) / (BUTTON_COUNT - 1));
+            spacing = Math.max(4, (available - BUTTON_COUNT * btnH) / Math.max(1, BUTTON_COUNT - 1));
             stackH = BUTTON_COUNT * btnH + (BUTTON_COUNT - 1) * spacing;
             if (stackH > available) {
-                btnH = Math.max(22, (available - (BUTTON_COUNT - 1) * spacing) / BUTTON_COUNT);
+                btnH = Math.max(18, (available - (BUTTON_COUNT - 1) * spacing) / BUTTON_COUNT);
                 stackH = BUTTON_COUNT * btnH + (BUTTON_COUNT - 1) * spacing;
             }
         }
+        // Last resort: shrink brand top pad so Quit stays on-screen
+        while (topPad + brandBlock + 8 + stackH + footerReserve > height && topPad > 8) {
+            topPad -= 2;
+        }
+        while (topPad + brandBlock + 8 + stackH + footerReserve > height && brandGap > 4) {
+            brandGap -= 1;
+            brandBlock = OnyxFont.TITLE.getHeight() + OnyxFont.SMALL.getHeight() + brandGap;
+        }
 
-        int brandBottom = (int) (height * 0.16F) + brandBlock;
-        int startY = brandBottom + Math.max(8, (available - stackH) / 2);
-        // Never clip Quit under footer
-        int maxStart = height - footerReserve - stackH - 4;
+        int brandBottom = topPad + brandBlock;
+        int startY = brandBottom + Math.max(6, (height - brandBottom - footerReserve - stackH) / 2);
+        int maxStart = height - footerReserve - stackH - 2;
         if (startY > maxStart) {
             startY = Math.max(brandBottom + 4, maxStart);
         }
+        // Absolute clamp: Quit bottom edge must stay above footer
+        int quitBottom = startY + stackH;
+        if (quitBottom > height - footerReserve) {
+            startY = Math.max(4, height - footerReserve - stackH);
+        }
 
         int centerX = width / 2;
-        String[] labels = {"Singleplayer", "Multiplayer", "Mod Menu", "Options", "Quit"};
+        String[] labels = {
+                "Join Hypixel",
+                "Join Ranked",
+                "Multiplayer",
+                "Mod Menu",
+                "Options",
+                "Quit"
+        };
         for (int i = 0; i < BUTTON_COUNT; i++) {
             buttonList.add(new OnyxButton(
                     i,
@@ -74,15 +109,50 @@ public class MainMenu extends GuiScreen {
             ));
         }
 
+        // Stash brand Y for drawBrand (was height*0.16)
+        this.brandDrawY = topPad;
+
         particles.clear();
         for (int i = 0; i < 48; i++) {
             particles.add(new Particle(random.nextInt(Math.max(1, width)), random.nextInt(Math.max(1, height))));
         }
         openProgress = 0.0F;
+        requestPlayerSkin();
+    }
+
+    private void requestPlayerSkin() {
+        if (skinRequested || mc == null || mc.getSession() == null) {
+            return;
+        }
+        skinRequested = true;
+        try {
+            GameProfile profile = mc.getSession().getProfile();
+            if (profile == null) {
+                return;
+            }
+            UUID id = profile.getId();
+            if (id != null) {
+                playerSkin = DefaultPlayerSkin.getDefaultSkin(id);
+            }
+            Map<MinecraftProfileTexture.Type, MinecraftProfileTexture> textures =
+                    mc.getSkinManager().loadSkinFromCache(profile);
+            if (textures != null && textures.containsKey(MinecraftProfileTexture.Type.SKIN)) {
+                playerSkin = mc.getSkinManager().loadSkin(
+                        textures.get(MinecraftProfileTexture.Type.SKIN),
+                        MinecraftProfileTexture.Type.SKIN);
+            } else {
+                mc.getSkinManager().loadProfileTextures(profile, new SkinCallback(), true);
+            }
+        } catch (Exception ignored) {
+            /* keep default / steve */
+        }
     }
 
     @Override
     public void drawScreen(int mouseX, int mouseY, float partialTicks) {
+        // Mod Menu uses nested GL scissors; clear any leftover clip before painting title UI.
+        RenderUtils.clearScissor();
+
         tickCounter++;
         if (openProgress < 1.0F) {
             openProgress = Math.min(1.0F, openProgress + 0.045F);
@@ -113,7 +183,7 @@ public class MainMenu extends GuiScreen {
         int clientW = OnyxFont.TITLE.getStringWidth(client);
         int totalW = onyxW + gap + clientW;
         float brandX = (width - totalW) / 2.0F;
-        float brandY = height * 0.16F;
+        float brandY = brandDrawY > 0 ? brandDrawY : height * 0.10F;
 
         float diamondY = brandY + OnyxFont.TITLE.getHeight() / 2.0F;
         RenderUtils.drawCircleF(brandX - 16, diamondY, 2.5F, Colors.withAlpha(Colors.ACCENT_PRIMARY, brandAlpha));
@@ -122,13 +192,25 @@ public class MainMenu extends GuiScreen {
         OnyxFont.TITLE.drawString(onyx, brandX, brandY, Colors.withAlpha(Colors.TEXT_PRIMARY, brandAlpha));
         OnyxFont.TITLE.drawString(client, brandX + onyxW + gap, brandY, Colors.withAlpha(Colors.ACCENT_BRIGHT, brandAlpha));
 
-        String subtitle = "v1.0  |  1.8.9 Forge";
+        String subtitle = rankedSubtitle();
         OnyxFont.SMALL.drawCenteredString(
                 subtitle,
                 width / 2.0F,
                 brandY + OnyxFont.TITLE.getHeight() + 10,
                 Colors.withAlpha(Colors.TEXT_MUTED, (int) (220 * ease))
         );
+    }
+
+    private String rankedSubtitle() {
+        RankedStatsClient.RankedStats cached = RankedStatsClient.getLastFetched();
+        if (cached != null && cached.elo != null && !"—".equals(cached.elo) && !cached.elo.isEmpty()) {
+            String line = cached.elo + " ELO";
+            if (cached.rank != null && !"—".equals(cached.rank) && !cached.rank.isEmpty()) {
+                line = line + "  ·  " + cached.rank;
+            }
+            return line;
+        }
+        return "Ranked ready";
     }
 
     private void drawButtons(int mouseX, int mouseY, float ease) {
@@ -171,14 +253,26 @@ public class MainMenu extends GuiScreen {
 
     private void drawPlayerHead(int x, int y, int size) {
         Minecraft mcInst = Minecraft.getMinecraft();
+        ResourceLocation skin = playerSkin;
+        if (skin == null) {
+            try {
+                if (mcInst.getSession() != null && mcInst.getSession().getProfile() != null
+                        && mcInst.getSession().getProfile().getId() != null) {
+                    skin = DefaultPlayerSkin.getDefaultSkin(mcInst.getSession().getProfile().getId());
+                }
+            } catch (Exception ignored) {
+            }
+        }
+        if (skin == null) {
+            skin = STEVE;
+        }
         GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
         GlStateManager.enableBlend();
         GlStateManager.enableTexture2D();
-        mcInst.getTextureManager().bindTexture(STEVE);
         RenderUtils.drawRoundedRect(x - 1, y - 1, size + 2, size + 2, 4, Colors.BG_CARD);
         GlStateManager.enableTexture2D();
         GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
-        mcInst.getTextureManager().bindTexture(STEVE);
+        mcInst.getTextureManager().bindTexture(skin);
         drawScaledCustomSizeModalRect(x, y, 8, 8, 8, 8, size, size, 64, 64);
     }
 
@@ -186,18 +280,21 @@ public class MainMenu extends GuiScreen {
     protected void actionPerformed(GuiButton button) throws IOException {
         switch (button.id) {
             case 0:
-                mc.displayGuiScreen(new GuiSelectWorld(this));
+                connectTo(HYPIXEL_SERVER_IP, "Hypixel");
                 break;
             case 1:
-                mc.displayGuiScreen(new GuiMultiplayer(this));
+                connectTo(RANKED_SERVER_IP, "Onyx Ranked");
                 break;
             case 2:
-                mc.displayGuiScreen(new ModMenu());
+                mc.displayGuiScreen(new GuiMultiplayer(this));
                 break;
             case 3:
-                mc.displayGuiScreen(new GuiOptions(this, mc.gameSettings));
+                mc.displayGuiScreen(new ModMenu());
                 break;
             case 4:
+                mc.displayGuiScreen(new GuiOptions(this, mc.gameSettings));
+                break;
+            case 5:
                 mc.shutdown();
                 break;
             default:
@@ -205,9 +302,24 @@ public class MainMenu extends GuiScreen {
         }
     }
 
+    private void connectTo(String ip, String name) {
+        ServerData data = new ServerData(name, ip, false);
+        mc.displayGuiScreen(new GuiConnecting(this, mc, data));
+    }
+
     @Override
     public boolean doesGuiPauseGame() {
         return false;
+    }
+
+    private class SkinCallback implements net.minecraft.client.resources.SkinManager.SkinAvailableCallback {
+        @Override
+        public void skinAvailable(MinecraftProfileTexture.Type typeIn, ResourceLocation location,
+                                  MinecraftProfileTexture profileTexture) {
+            if (typeIn == MinecraftProfileTexture.Type.SKIN && location != null) {
+                playerSkin = location;
+            }
+        }
     }
 
     private static class Particle {

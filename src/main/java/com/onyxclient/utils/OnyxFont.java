@@ -25,12 +25,14 @@ import java.util.Map;
  */
 public final class OnyxFont {
 
+    /** Dense Mod Menu / Custom Font chrome — near vanilla row height; same 2× AA as SMALL. */
+    public static final OnyxFont UI = new OnyxFont("Outfit-Regular.ttf", 9);
     public static final OnyxFont SMALL = new OnyxFont("Outfit-Regular.ttf", 16);
     public static final OnyxFont MEDIUM = new OnyxFont("Outfit-Medium.ttf", 20);
     public static final OnyxFont LARGE = new OnyxFont("Outfit-SemiBold.ttf", 32);
     public static final OnyxFont TITLE = new OnyxFont("Outfit-SemiBold.ttf", 40);
 
-    private static final int CACHE_LIMIT = 64;
+    private static final int CACHE_LIMIT = 256;
     private static final int PAD = 4;
     private static final int SCALE = 2; // render at 2x for smoother AA
 
@@ -157,15 +159,41 @@ public final class OnyxFont {
         wr.pos(x1, y1, 0).tex(0, 0).endVertex();
         tess.draw();
 
-        // Restore GL so subsequent untextured draws are clean
+        // Restore color/alpha; keep blend on for translucent UI that follows text
         GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
         GlStateManager.enableAlpha();
-        GlStateManager.disableBlend();
+        GlStateManager.enableBlend();
         GlStateManager.enableTexture2D();
     }
 
     public void drawCenteredString(String text, float x, float y, int color) {
         drawString(text, x - getStringWidth(text) / 2.0F, y, color);
+    }
+
+    public void drawStringWithShadow(String text, float x, float y, int color) {
+        int shadow = (color & 0xFF000000) | 0x000000;
+        drawString(text, x + 1.0F, y + 1.0F, shadow);
+        drawString(text, x, y, color);
+    }
+
+    /** Trim with ellipsis using this font's metrics (not vanilla widths). */
+    public String trimToWidth(String text, int maxPx) {
+        if (maxPx <= 0 || text == null) {
+            return "";
+        }
+        if (getStringWidth(text) <= maxPx) {
+            return text;
+        }
+        String ellipsis = "...";
+        int ellipsisW = getStringWidth(ellipsis);
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < text.length(); i++) {
+            if (getStringWidth(sb.toString() + text.charAt(i)) + ellipsisW > maxPx) {
+                break;
+            }
+            sb.append(text.charAt(i));
+        }
+        return sb.append(ellipsis).toString();
     }
 
     private CachedString getOrCreate(String text) {

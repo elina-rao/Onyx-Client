@@ -63,6 +63,9 @@ public class ConfigManager {
             if (config.hud == null) {
                 config.hud = new HashMap<String, HudPosition>();
             }
+            if (config.favoriteModules == null) {
+                config.favoriteModules = new ArrayList<String>();
+            }
         } catch (Exception e) {
             config = new ClientConfig();
             e.printStackTrace();
@@ -132,6 +135,8 @@ public class ConfigManager {
                 HudPosition pos = new HudPosition();
                 pos.x = hud.getHudX();
                 pos.y = hud.getHudY();
+                pos.w = hud.getHudWidth();
+                pos.h = hud.getHudHeight();
                 config.hud.put(module.getName(), pos);
             }
         }
@@ -142,7 +147,11 @@ public class ConfigManager {
             applyModuleConfig(module);
             HudPosition pos = getHudPosition(module.getName());
             if (pos != null && module instanceof HudModule) {
-                ((HudModule) module).setHudPosition(pos.x, pos.y);
+                HudModule hud = (HudModule) module;
+                hud.setHudPosition(pos.x, pos.y);
+                if (pos.w > 0 && pos.h > 0) {
+                    hud.setHudSize(pos.w, pos.h);
+                }
             }
         }
     }
@@ -164,6 +173,8 @@ public class ConfigManager {
         HudPosition pos = new HudPosition();
         pos.x = module.getHudX();
         pos.y = module.getHudY();
+        pos.w = module.getHudWidth();
+        pos.h = module.getHudHeight();
         config.hud.put(module.getName(), pos);
         save();
     }
@@ -206,7 +217,8 @@ public class ConfigManager {
         for (File file : files) {
             String name = file.getName();
             if (name.endsWith(".json")) {
-                names.add(name.substring(0, name.length() - 5));
+                // Display spaces instead of filename underscores (e.g. Casual_Bedwars → Casual Bedwars).
+                names.add(name.substring(0, name.length() - 5).replace('_', ' '));
             }
         }
         Collections.sort(names);
@@ -273,6 +285,20 @@ public class ConfigManager {
         return in.exists() && in.delete();
     }
 
+    public boolean renameProfile(String oldName, String newName) {
+        String from = sanitizeProfileName(oldName);
+        String to = sanitizeProfileName(newName);
+        if (from.isEmpty() || to.isEmpty() || from.equals(to)) {
+            return false;
+        }
+        File src = new File(profilesDir, from + ".json");
+        File dst = new File(profilesDir, to + ".json");
+        if (!src.exists() || dst.exists()) {
+            return false;
+        }
+        return src.renameTo(dst);
+    }
+
     private String sanitizeProfileName(String name) {
         if (name == null) {
             return "";
@@ -302,6 +328,13 @@ public class ConfigManager {
 
         // Settings tab — Performance
         public int unfocusedFpsLimit = 30;
+        public int perfPreset = 0; // 0 Balanced, 1 Max FPS, 2 Quality
+        /** 0 = unlimited / follow preset */
+        public int focusedFpsCap = 0;
+        /** 0 = auto (preset), 1-5 = 2/4/6/8/12 chunks */
+        public int renderDistanceOverride = 0;
+        public boolean retinaDetected = false;
+        public boolean retinaTipShown = false;
 
         // Settings tab — Controls
         public boolean rawMouseInput = false;
@@ -315,6 +348,9 @@ public class ConfigManager {
 
         // Settings tab — Ranked
         public boolean rankedTips = true;
+
+        /** Mod names pinned to top of Mods grid (Badlion-style favorites). */
+        public List<String> favoriteModules = new ArrayList<String>();
     }
 
     public static class ModuleConfig {
@@ -326,5 +362,7 @@ public class ConfigManager {
     public static class HudPosition {
         public int x;
         public int y;
+        public int w;
+        public int h;
     }
 }

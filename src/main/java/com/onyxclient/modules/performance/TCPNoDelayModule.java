@@ -1,4 +1,4 @@
-package com.onyxclient.modules.rendering;
+package com.onyxclient.modules.performance;
 
 import com.onyxclient.modules.Module;
 import com.onyxclient.modules.ModuleCategory;
@@ -6,7 +6,9 @@ import io.netty.channel.Channel;
 import io.netty.channel.ChannelOption;
 import net.minecraft.client.Minecraft;
 import net.minecraft.network.NetworkManager;
+import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
 import net.minecraftforge.fml.common.gameevent.TickEvent;
+import net.minecraftforge.fml.common.network.FMLNetworkEvent;
 
 import java.lang.reflect.Field;
 
@@ -15,10 +17,13 @@ import java.lang.reflect.Field;
  */
 public class TCPNoDelayModule extends Module {
 
+    public static TCPNoDelayModule INSTANCE;
+
     private boolean applied;
 
     public TCPNoDelayModule() {
-        super("TCPNoDelay", "Disable Nagle on client socket", ModuleCategory.RENDERING, true);
+        super("TCPNoDelay", "Disable Nagle on client socket (lower input delay)", ModuleCategory.PERFORMANCE, true);
+        INSTANCE = this;
     }
 
     @Override
@@ -34,7 +39,16 @@ public class TCPNoDelayModule extends Module {
         }
     }
 
+    @SubscribeEvent
+    public void onConnected(FMLNetworkEvent.ClientConnectedToServerEvent event) {
+        applied = false;
+        apply();
+    }
+
     private void apply() {
+        if (!isEnabled()) {
+            return;
+        }
         try {
             Minecraft mc = Minecraft.getMinecraft();
             if (mc.getNetHandler() == null) {

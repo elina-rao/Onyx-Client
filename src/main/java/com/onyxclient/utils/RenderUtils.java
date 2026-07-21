@@ -6,6 +6,7 @@ import net.minecraft.client.renderer.GlStateManager;
 import net.minecraft.client.renderer.Tessellator;
 import net.minecraft.client.renderer.WorldRenderer;
 import net.minecraft.client.renderer.vertex.DefaultVertexFormats;
+import net.minecraft.client.shader.Framebuffer;
 import org.lwjgl.opengl.GL11;
 
 import java.util.ArrayDeque;
@@ -15,45 +16,78 @@ public final class RenderUtils {
 
     private static final int ARC_SEGMENTS = 32;
     private static final Deque<int[]> SCISSOR_STACK = new ArrayDeque<int[]>();
+    /** Stack marker: enableScissor skipped (invalid size); GL state unchanged. */
+    private static final int[] SCISSOR_NOOP = new int[0];
 
     private RenderUtils() {
     }
 
     /**
      * Clip subsequent draws to a GuiScreen-space rectangle.
-     * Converts to OpenGL framebuffer coords using the current GUI scale.
+     * Converts to OpenGL framebuffer coords using framebuffer / scaled-GUI ratios
+     * (Retina / OptiFine safe — not a single getScaleFactor()).
      * Supports nesting via an intersect stack.
      */
     public static void enableScissor(int x, int y, int width, int height) {
         if (width <= 0 || height <= 0) {
-            SCISSOR_STACK.push(new int[]{0, 0, 0, 0});
-            GL11.glEnable(GL11.GL_SCISSOR_TEST);
-            GL11.glScissor(0, 0, 0, 0);
+            // Do not blank the framebuffer with a 0×0 scissor; pair with disableScissor.
+            SCISSOR_STACK.push(SCISSOR_NOOP);
             return;
         }
 
         Minecraft mc = Minecraft.getMinecraft();
         ScaledResolution sr = new ScaledResolution(mc);
-        int scale = sr.getScaleFactor();
-        int sx = x * scale;
-        int sy = mc.displayHeight - (y + height) * scale;
-        int sw = width * scale;
-        int sh = height * scale;
+        int fbW = mc.displayWidth;
+        int fbH = mc.displayHeight;
+        Framebuffer fb = mc.getFramebuffer();
+        if (fb != null && fb.framebufferWidth > 0 && fb.framebufferHeight > 0) {
+            fbW = fb.framebufferWidth;
+            fbH = fb.framebufferHeight;
+        }
+        int scaledW = Math.max(1, sr.getScaledWidth());
+        int scaledH = Math.max(1, sr.getScaledHeight());
+        float scaleX = fbW / (float) scaledW;
+        float scaleY = fbH / (float) scaledH;
+
+        int sx = Math.round(x * scaleX);
+        int sw = Math.max(0, Math.round(width * scaleX));
+        int sh = Math.max(0, Math.round(height * scaleY));
+        int sy = Math.round(fbH - (y + height) * scaleY);
+
+        // Clamp to framebuffer so glScissor never gets negative extents
+        if (sx < 0) {
+            sw += sx;
+            sx = 0;
+        }
+        if (sy < 0) {
+            sh += sy;
+            sy = 0;
+        }
+        if (sx + sw > fbW) {
+            sw = fbW - sx;
+        }
+        if (sy + sh > fbH) {
+            sh = fbH - sy;
+        }
+        sw = Math.max(0, sw);
+        sh = Math.max(0, sh);
 
         if (!SCISSOR_STACK.isEmpty()) {
             int[] parent = SCISSOR_STACK.peek();
-            int px = parent[0];
-            int py = parent[1];
-            int pw = parent[2];
-            int ph = parent[3];
-            int x0 = Math.max(sx, px);
-            int y0 = Math.max(sy, py);
-            int x1 = Math.min(sx + sw, px + pw);
-            int y1 = Math.min(sy + sh, py + ph);
-            sx = x0;
-            sy = y0;
-            sw = Math.max(0, x1 - x0);
-            sh = Math.max(0, y1 - y0);
+            if (parent.length == 4) {
+                int px = parent[0];
+                int py = parent[1];
+                int pw = parent[2];
+                int ph = parent[3];
+                int x0 = Math.max(sx, px);
+                int y0 = Math.max(sy, py);
+                int x1 = Math.min(sx + sw, px + pw);
+                int y1 = Math.min(sy + sh, py + ph);
+                sx = x0;
+                sy = y0;
+                sw = Math.max(0, x1 - x0);
+                sh = Math.max(0, y1 - y0);
+            }
         }
 
         SCISSOR_STACK.push(new int[]{sx, sy, sw, sh});
@@ -69,10 +103,38 @@ public final class RenderUtils {
         SCISSOR_STACK.pop();
         if (SCISSOR_STACK.isEmpty()) {
             GL11.glDisable(GL11.GL_SCISSOR_TEST);
-        } else {
-            int[] parent = SCISSOR_STACK.peek();
-            GL11.glScissor(parent[0], parent[1], parent[2], parent[3]);
+            return;
         }
+        int[] parent = SCISSOR_STACK.peek();
+        if (parent.length != 4) {
+            // Still inside a noop / skipped level — leave GL as restored by next real parent walk
+            restoreTopScissor();
+            return;
+        }
+        GL11.glEnable(GL11.GL_SCISSOR_TEST);
+        GL11.glScissor(parent[0], parent[1], parent[2], parent[3]);
+    }
+
+    private static void restoreTopScissor() {
+        int[] real = null;
+        for (int[] entry : SCISSOR_STACK) {
+            if (entry.length == 4) {
+                real = entry;
+                break; // head = top of stack
+            }
+        }
+        if (real == null) {
+            GL11.glDisable(GL11.GL_SCISSOR_TEST);
+        } else {
+            GL11.glEnable(GL11.GL_SCISSOR_TEST);
+            GL11.glScissor(real[0], real[1], real[2], real[3]);
+        }
+    }
+
+    /** Drop any nested clip state and turn off GL scissor (safe across GUI switches). */
+    public static void clearScissor() {
+        SCISSOR_STACK.clear();
+        GL11.glDisable(GL11.GL_SCISSOR_TEST);
     }
 
     public static void drawRect(int x, int y, int width, int height, int color) {

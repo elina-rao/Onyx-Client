@@ -54,11 +54,12 @@ public final class OptiFineInjector {
     }
 
     public static void writeOptiFineProperties(File gameDir) {
+        writeOptiFineProperties(gameDir, PROPERTIES);
+    }
+
+    public static void writeOptiFineProperties(File gameDir, String content) {
         try {
-            File props = new File(gameDir, "optionsof.txt");
-            if (!props.exists()) {
-                java.nio.file.Files.write(props.toPath(), PROPERTIES.getBytes(StandardCharsets.UTF_8));
-            }
+            java.nio.file.Files.write(new File(gameDir, "optionsof.txt").toPath(), content.getBytes(StandardCharsets.UTF_8));
         } catch (Exception e) {
             System.err.println("[OnyxLoader] Could not write optionsof.txt: " + e.getMessage());
         }

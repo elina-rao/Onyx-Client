@@ -111,19 +111,58 @@ function resolveJavaPath(configured) {
   return process.platform === 'win32' ? 'java.exe' : 'java';
 }
 
+function readPerfPreset(gameDir) {
+  try {
+    const settingsPath = path.join(gameDir, 'config', 'onyxclient', 'settings.json');
+    if (fs.existsSync(settingsPath)) {
+      const data = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+      if (typeof data.perfPreset === 'number') {
+        return data.perfPreset;
+      }
+    }
+  } catch (_) {
+    /* use default */
+  }
+  return 0;
+}
+
+const OPTIFINE_MAX =
+  'ofFastRender=true\nofFastMath=true\nofLazyChunkLoading=true\nofChunkUpdates=1\n'
+  + 'ofDynamicLights=0\nofConnectedTextures=0\nofCustomSky=false\nofSmoothFps=false\n'
+  + 'ofSmoothWorld=false\nofTerrainLoD=true\nofDynamicFov=false\n';
+
+const OPTIFINE_BALANCED =
+  'ofFastRender=true\nofFastMath=true\nofLazyChunkLoading=true\nofChunkUpdates=3\n'
+  + 'ofDynamicLights=1\nofConnectedTextures=2\nofCustomSky=true\nofSmoothFps=false\n'
+  + 'ofSmoothWorld=false\nofTerrainLoD=true\nofDynamicFov=false\n';
+
+const OPTIFINE_QUALITY =
+  'ofFastRender=false\nofFastMath=false\nofLazyChunkLoading=false\nofChunkUpdates=5\n'
+  + 'ofDynamicLights=1\nofConnectedTextures=2\nofCustomSky=true\nofSmoothFps=true\n'
+  + 'ofSmoothWorld=true\nofTerrainLoD=false\nofDynamicFov=false\n';
+
+function ensureOptionsOfTxt(gameDir, preset) {
+  const optionsOfPath = path.join(gameDir, 'optionsof.txt');
+  try {
+    const content = preset === 1 ? OPTIFINE_MAX : preset === 2 ? OPTIFINE_QUALITY : OPTIFINE_BALANCED;
+    fs.writeFileSync(optionsOfPath, content, 'utf8');
+  } catch (err) {
+    console.error('[launch] Failed to write optionsof.txt:', err.message);
+  }
+}
+
 function ensureOptionsTxt(gameDir) {
   const optionsPath = path.join(gameDir, 'options.txt');
+  const preset = readPerfPreset(gameDir);
+  const maxFps = '0';
+  const renderDistance = preset === 1 ? '4' : preset === 2 ? '12' : '6';
+  const maxPreset = preset === 1;
   try {
     fs.mkdirSync(gameDir, { recursive: true });
-    if (!fs.existsSync(optionsPath)) {
-      fs.writeFileSync(
-        optionsPath,
-        ['enableVsync:false', 'maxFps:260', 'fov:70'].join('\n') + '\n',
-        'utf8'
-      );
-      return;
+    let text = '';
+    if (fs.existsSync(optionsPath)) {
+      text = fs.readFileSync(optionsPath, 'utf8');
     }
-    let text = fs.readFileSync(optionsPath, 'utf8');
     const ensure = (key, value) => {
       const re = new RegExp(`^${key}:.*$`, 'm');
       if (re.test(text)) {
@@ -133,8 +172,16 @@ function ensureOptionsTxt(gameDir) {
       }
     };
     ensure('enableVsync', 'false');
-    ensure('maxFps', '260');
+    ensure('maxFps', maxFps);
+    ensure('renderDistance', renderDistance);
+    if (maxPreset) {
+      ensure('fancyGraphics', 'false');
+      ensure('ao', '0');
+      ensure('entityShadows', 'false');
+      ensure('particles', '0');
+    }
     fs.writeFileSync(optionsPath, text.trim() + '\n', 'utf8');
+    ensureOptionsOfTxt(gameDir, preset);
   } catch (err) {
     console.error('[launch] Failed to write options.txt:', err.message);
   }
@@ -213,12 +260,14 @@ async function launchGame(opts, onProgress) {
 
   onProgress({ stage: 'java', message: `Using Java: ${javaPath}`, percent: 10 });
 
-  // Sync client jar into gameDir/mods from build or resources
+  // Sync newest client jar into gameDir/mods from build or resources (size/sha256 checked)
   const clientCandidates = findClientJarCandidates(appPath);
-  for (const candidate of clientCandidates) {
-    if (fs.existsSync(candidate)) {
-      ensureClientMod(gameDir, candidate);
-      break;
+  if (clientCandidates.length > 0) {
+    const synced = ensureClientMod(gameDir, clientCandidates[0]);
+    if (!synced) {
+      console.error(
+        `[OnyxLauncher] Pre-launch jar sync failed for ${clientCandidates[0]} — Forge launch will retry`
+      );
     }
   }
 

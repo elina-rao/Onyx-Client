@@ -48,12 +48,29 @@ dependencies {
 }
 
 mixin {
+    add sourceSets.main, 'mixins.onyxclient.refmap.json'
     defaultObfuscationEnv searge
 }
 
-// Plain Forge mod jar — do NOT shade Mixin / no TweakClass so FML discovers @Mod
+// Shade Mixin + coremod manifest so mixins.onyxclient.json loads at runtime.
+// MixinTweaker is required: LaunchClassLoader cannot see shaded Mixin without it
+// (NoClassDefFoundError: IMixinService). ForceLoadAsMod + ContainsFMLMod keep @Mod.
 jar {
     archiveName = "OnyxClient-1.8.9-v${version}.jar"
+    from {
+        configurations.embed.collect { it.isDirectory() ? it : zipTree(it) }
+    }
+    // mixin { add ... } already packages mixins.onyxclient.refmap.json into classes
+    manifest {
+        attributes(
+            'FMLCorePlugin': 'com.onyxclient.launch.MixinLoader',
+            'FMLCorePluginContainsFMLMod': 'true',
+            'ForceLoadAsMod': 'true',
+            'TweakClass': 'org.spongepowered.asm.launch.MixinTweaker',
+            'TweakOrder': '0',
+            'MixinConfigs': 'mixins.onyxclient.json'
+        )
+    }
 }
 
 reobf {

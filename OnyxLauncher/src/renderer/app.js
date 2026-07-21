@@ -17,6 +17,9 @@
   const javaPath = document.getElementById('java-path');
   const gameDir = document.getElementById('game-dir');
   const themeSelect = document.getElementById('theme-select');
+  const apiEndpoint = document.getElementById('api-endpoint');
+  const discordInviteInput = document.getElementById('discord-invite');
+  const serverIpInput = document.getElementById('server-ip');
   const javaResolvedHint = document.getElementById('java-resolved-hint');
   const btnSettingsMicrosoft = document.getElementById('btn-settings-microsoft');
   const readyJava = document.getElementById('ready-java');
@@ -30,6 +33,8 @@
   let settings = null;
   let launching = false;
   let installingForge = false;
+  let skinsState = { skins: [], activeId: null, model: 'classic' };
+  let skinBusy = false;
 
   function showToast(message, ms) {
     ms = ms || 2000;
@@ -46,7 +51,12 @@
       el.classList.toggle('active', el.dataset.view === name);
     });
     document.getElementById('view-home').classList.toggle('hidden', name !== 'home');
+    const skinsView = document.getElementById('view-skins');
+    if (skinsView) skinsView.classList.toggle('hidden', name !== 'skins');
     document.getElementById('view-settings').classList.toggle('hidden', name !== 'settings');
+    if (name === 'skins') {
+      refreshSkinsUi();
+    }
   }
 
   function statsPlaceholders(footerNote) {
@@ -188,10 +198,19 @@
       ? 'Leave empty to auto-detect (bundled JRE available)'
       : 'Leave empty to auto-detect';
     gameDir.value = cfg.gameDir || '';
+    if (apiEndpoint) {
+      apiEndpoint.value = cfg.onyxApiEndpoint || 'https://api.onyxrbw.com';
+    }
+    if (discordInviteInput) {
+      discordInviteInput.value = cfg.discordInvite || 'https://discord.gg/onyxrbw';
+    }
+    if (serverIpInput) {
+      serverIpInput.value = cfg.serverIp || 'eu.onyxrbw.com';
+    }
     if (themeSelect) {
       themeSelect.value = cfg.theme || 'onyx-dark';
     }
-    footerVersion.textContent = 'v' + (cfg.version || '1.0.0');
+    footerVersion.textContent = 'v' + (cfg.version || '1.0.2');
     updateJavaHint(cfg);
   }
 
@@ -249,6 +268,293 @@
     }
   }
 
+  function drawSkinPreview(canvas, img, scale) {
+    if (!canvas || !img) return;
+    const ctx = canvas.getContext('2d');
+    const s = scale || Math.floor(canvas.width / 8);
+    ctx.imageSmoothingEnabled = false;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = '#0a0612';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    // Front body (64×64 UV): head 8x8 at 8,8; body 8x12 at 20,20; arms/legs
+    const ox = Math.floor((canvas.width - 16 * s) / 2);
+    const oy = Math.floor((canvas.height - 32 * s) / 2);
+    // head
+    ctx.drawImage(img, 8, 8, 8, 8, ox + 4 * s, oy, 8 * s, 8 * s);
+    // hat
+    ctx.drawImage(img, 40, 8, 8, 8, ox + 4 * s, oy, 8 * s, 8 * s);
+    // body
+    ctx.drawImage(img, 20, 20, 8, 12, ox + 4 * s, oy + 8 * s, 8 * s, 12 * s);
+    // right arm / left arm (classic)
+    ctx.drawImage(img, 44, 20, 4, 12, ox, oy + 8 * s, 4 * s, 12 * s);
+    ctx.drawImage(img, 36, 52, 4, 12, ox + 12 * s, oy + 8 * s, 4 * s, 12 * s);
+    // right leg / left leg
+    ctx.drawImage(img, 4, 20, 4, 12, ox + 4 * s, oy + 20 * s, 4 * s, 12 * s);
+    ctx.drawImage(img, 20, 52, 4, 12, ox + 8 * s, oy + 20 * s, 4 * s, 12 * s);
+  }
+
+  function drawSkinHead(canvas, img) {
+    if (!canvas || !img) return;
+    const ctx = canvas.getContext('2d');
+    ctx.imageSmoothingEnabled = false;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(img, 8, 8, 8, 8, 0, 0, canvas.width, canvas.height);
+    ctx.drawImage(img, 40, 8, 8, 8, 0, 0, canvas.width, canvas.height);
+  }
+
+  function loadImage(dataUrl) {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = () => reject(new Error('Failed to load skin image'));
+      img.src = dataUrl;
+    });
+  }
+
+  function setSkinStatus(msg, isError) {
+    const el = document.getElementById('skin-status');
+    if (!el) return;
+    el.textContent = msg || '';
+    el.classList.toggle('warn', !!isError);
+  }
+
+  function updateSkinMsGate() {
+    const applyBtn = document.getElementById('btn-skin-apply');
+    const resetBtn = document.getElementById('btn-skin-reset');
+    const isMs = currentSession && !currentSession.guest && currentSession.type !== 'guest';
+    if (applyBtn) applyBtn.disabled = !isMs || skinBusy || !skinsState.activeId;
+    if (resetBtn) resetBtn.disabled = !isMs || skinBusy;
+    if (!isMs) {
+      setSkinStatus('Sign in with Microsoft to apply skins to your account. Upload and copy still work.');
+    }
+  }
+
+  async function refreshSkinsUi() {
+    const grid = document.getElementById('skins-grid');
+    const empty = document.getElementById('skins-empty');
+    const nameEl = document.getElementById('skin-selected-name');
+    const preview = document.getElementById('skin-preview');
+    if (!grid) return;
+
+    const list = await window.onyx.skinList();
+    if (!list.ok) {
+      setSkinStatus(list.error || 'Could not load skins', true);
+      return;
+    }
+    skinsState = {
+      skins: list.skins || [],
+      activeId: list.activeId,
+      model: list.model === 'slim' ? 'slim' : 'classic'
+    };
+
+    const btnClassic = document.getElementById('btn-model-classic');
+    const btnSlim = document.getElementById('btn-model-slim');
+    if (btnClassic) btnClassic.classList.toggle('active', skinsState.model === 'classic');
+    if (btnSlim) btnSlim.classList.toggle('active', skinsState.model === 'slim');
+
+    grid.innerHTML = '';
+    if (!skinsState.skins.length) {
+      if (empty) empty.classList.remove('hidden');
+      if (nameEl) nameEl.textContent = 'No skin selected';
+      if (preview) {
+        const ctx = preview.getContext('2d');
+        ctx.fillStyle = '#0a0612';
+        ctx.fillRect(0, 0, preview.width, preview.height);
+      }
+      updateSkinMsGate();
+      return;
+    }
+    if (empty) empty.classList.add('hidden');
+
+    for (const skin of skinsState.skins) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'skin-tile' + (skin.id === skinsState.activeId ? ' active' : '');
+      btn.dataset.id = skin.id;
+      const c = document.createElement('canvas');
+      c.width = 48;
+      c.height = 48;
+      const label = document.createElement('span');
+      label.className = 'skin-tile-name';
+      label.textContent = skin.name;
+      btn.appendChild(c);
+      btn.appendChild(label);
+      btn.addEventListener('click', () => selectSkin(skin.id));
+      grid.appendChild(btn);
+
+      window.onyx.skinGetData(skin.id).then(async (data) => {
+        if (!data.ok) return;
+        try {
+          const img = await loadImage(data.dataUrl);
+          drawSkinHead(c, img);
+        } catch (_) {
+          /* ignore */
+        }
+      });
+    }
+
+    if (skinsState.activeId) {
+      await renderSelectedSkin(skinsState.activeId);
+    } else if (nameEl) {
+      nameEl.textContent = 'No skin selected';
+    }
+    updateSkinMsGate();
+  }
+
+  async function selectSkin(id) {
+    const result = await window.onyx.skinSetActive(id);
+    if (!result.ok) {
+      setSkinStatus(result.error || 'Could not select skin', true);
+      return;
+    }
+    skinsState.activeId = id;
+    await refreshSkinsUi();
+  }
+
+  async function renderSelectedSkin(id) {
+    const nameEl = document.getElementById('skin-selected-name');
+    const preview = document.getElementById('skin-preview');
+    const skin = skinsState.skins.find((s) => s.id === id);
+    if (nameEl) nameEl.textContent = skin ? skin.name : 'No skin selected';
+    if (!preview || !id) return;
+    const data = await window.onyx.skinGetData(id);
+    if (!data.ok) {
+      setSkinStatus(data.error || 'Preview failed', true);
+      return;
+    }
+    try {
+      const img = await loadImage(data.dataUrl);
+      drawSkinPreview(preview, img, 6);
+      if (currentSession && !currentSession.guest) setSkinStatus('');
+    } catch (err) {
+      setSkinStatus(err.message || 'Preview failed', true);
+    }
+  }
+
+  async function withSkinBusy(fn) {
+    if (skinBusy) return;
+    skinBusy = true;
+    updateSkinMsGate();
+    try {
+      await fn();
+    } finally {
+      skinBusy = false;
+      updateSkinMsGate();
+    }
+  }
+
+  function wireSkinsUi() {
+    const btnImport = document.getElementById('btn-skin-import');
+    const btnCopy = document.getElementById('btn-skin-copy');
+    const btnApply = document.getElementById('btn-skin-apply');
+    const btnReset = document.getElementById('btn-skin-reset');
+    const btnDelete = document.getElementById('btn-skin-delete');
+    const btnClassic = document.getElementById('btn-model-classic');
+    const btnSlim = document.getElementById('btn-model-slim');
+    const ignInput = document.getElementById('skin-copy-ign');
+
+    if (btnImport) {
+      btnImport.addEventListener('click', () =>
+        withSkinBusy(async () => {
+          const result = await window.onyx.skinImport();
+          if (result.cancelled) return;
+          if (!result.ok) {
+            setSkinStatus(result.error || 'Import failed', true);
+            showToast(result.error || 'Import failed', 3000);
+            return;
+          }
+          showToast('Skin imported');
+          await refreshSkinsUi();
+        })
+      );
+    }
+
+    if (btnCopy) {
+      btnCopy.addEventListener('click', () =>
+        withSkinBusy(async () => {
+          const ign = ignInput ? ignInput.value.trim() : '';
+          setSkinStatus('Copying skin…');
+          const result = await window.onyx.skinCopyUsername(ign);
+          if (!result.ok) {
+            setSkinStatus(result.error || 'Copy failed', true);
+            showToast(result.error || 'Copy failed', 3000);
+            return;
+          }
+          showToast('Copied skin from ' + (result.entry && result.entry.name ? result.entry.name : ign));
+          if (ignInput) ignInput.value = '';
+          await refreshSkinsUi();
+        })
+      );
+    }
+
+    if (ignInput) {
+      ignInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && btnCopy) btnCopy.click();
+      });
+    }
+
+    if (btnApply) {
+      btnApply.addEventListener('click', () =>
+        withSkinBusy(async () => {
+          setSkinStatus('Applying to Minecraft account…');
+          const result = await window.onyx.skinApply();
+          if (!result.ok) {
+            setSkinStatus(result.error || 'Apply failed', true);
+            showToast(result.error || 'Apply failed', 3500);
+            return;
+          }
+          setSkinStatus('Applied — others will see it after skin caches refresh.');
+          showToast('Skin applied to account');
+        })
+      );
+    }
+
+    if (btnReset) {
+      btnReset.addEventListener('click', () =>
+        withSkinBusy(async () => {
+          setSkinStatus('Resetting account skin…');
+          const result = await window.onyx.skinReset();
+          if (!result.ok) {
+            setSkinStatus(result.error || 'Reset failed', true);
+            showToast(result.error || 'Reset failed', 3500);
+            return;
+          }
+          showToast('Account skin reset');
+          await refreshSkinsUi();
+        })
+      );
+    }
+
+    if (btnDelete) {
+      btnDelete.addEventListener('click', () =>
+        withSkinBusy(async () => {
+          if (!skinsState.activeId) {
+            setSkinStatus('Select a skin to delete', true);
+            return;
+          }
+          const result = await window.onyx.skinDelete(skinsState.activeId);
+          if (!result.ok) {
+            setSkinStatus(result.error || 'Delete failed', true);
+            return;
+          }
+          showToast('Skin deleted');
+          await refreshSkinsUi();
+        })
+      );
+    }
+
+    async function setModel(model) {
+      const result = await window.onyx.skinSetModel(model);
+      if (result.ok) {
+        skinsState.model = result.model;
+        if (btnClassic) btnClassic.classList.toggle('active', result.model === 'classic');
+        if (btnSlim) btnSlim.classList.toggle('active', result.model === 'slim');
+      }
+    }
+    if (btnClassic) btnClassic.addEventListener('click', () => setModel('classic'));
+    if (btnSlim) btnSlim.addEventListener('click', () => setModel('slim'));
+  }
+
   async function enterApp(session, welcomeBack) {
     applySession(session);
     window.OnyxAuthModal.hide();
@@ -257,6 +563,7 @@
     setView('home');
     refreshReadiness();
     refreshApiStatus();
+    updateSkinMsGate();
     if (welcomeBack) {
       showToast('Welcome back, ' + session.username);
     }
@@ -265,10 +572,25 @@
       .then((info) => {
         if (!info) return;
         if (info.ok && info.launcherUpdate) {
-          showToast(
-            'Launcher update available (v' + info.launcherUpdate + ') — check Discord for download',
-            5000
-          );
+          const ver = info.launcherUpdate.version || info.launcherUpdate;
+          if (info.launcherUpdate.url) {
+            showToast('Launcher v' + ver + ' ready — updating…', 4000);
+            window.onyx.installLauncherUpdate().then((res) => {
+              if (!res || !res.ok) {
+                showToast(
+                  (res && res.error) || 'Could not install launcher update',
+                  5000
+                );
+              } else {
+                showToast('Restarting to finish update…', 3000);
+              }
+            });
+          } else {
+            showToast(
+              'Launcher update available (v' + ver + ') — publish launcherUrl on the API to auto-install',
+              5000
+            );
+          }
         }
         if (info.ok && info.applied && info.applied.applied && info.applied.applied.length) {
           showToast('Updated client components', 3000);
@@ -343,6 +665,8 @@
     btn.addEventListener('click', () => setView(btn.dataset.view));
   });
 
+  wireSkinsUi();
+
   ramSlider.addEventListener('input', () => {
     ramValue.textContent = ramSlider.value + ' GB';
   });
@@ -366,16 +690,69 @@
       ramGb: Number(ramSlider.value),
       javaPath: javaPath.value.trim(),
       gameDir: gameDir.value.trim(),
+      onyxApiEndpoint: apiEndpoint ? apiEndpoint.value.trim() : undefined,
+      discordInvite: discordInviteInput ? discordInviteInput.value.trim() : undefined,
+      serverIp: serverIpInput ? serverIpInput.value.trim() : undefined,
       theme: themeSelect ? themeSelect.value : 'onyx-dark'
     });
     if (result.ok) {
       const refreshed = await window.onyx.getSettings();
       fillSettings(refreshed);
       refreshReadiness();
+      refreshApiStatus();
       showToast('Settings saved');
     }
   });
 
+  const btnCopyServerIp = document.getElementById('btn-copy-server-ip');
+  if (btnCopyServerIp && serverIpInput) {
+    btnCopyServerIp.addEventListener('click', async () => {
+      const ip = serverIpInput.value.trim() || 'eu.onyxrbw.com';
+      try {
+        await navigator.clipboard.writeText(ip);
+        showToast('Copied ' + ip);
+      } catch (_) {
+        showToast('Could not copy — select and copy manually', 3000);
+      }
+    });
+  }
+
+  const btnTestApi = document.getElementById('btn-test-api');
+  if (btnTestApi) {
+    btnTestApi.addEventListener('click', async () => {
+      const base = (
+        (apiEndpoint && apiEndpoint.value.trim()) ||
+        (settings && settings.onyxApiEndpoint) ||
+        'https://api.onyxrbw.com'
+      ).replace(/\/$/, '');
+      btnTestApi.disabled = true;
+      try {
+        const ctrl = new AbortController();
+        const t = setTimeout(() => ctrl.abort(), 5000);
+        const res = await fetch(base + '/rbw/api', {
+          signal: ctrl.signal,
+          headers: { Accept: 'application/json' }
+        });
+        clearTimeout(t);
+        // Any HTTP response means the host is reachable (401 without AUTH_KEY is fine)
+        showToast('API reachable (' + res.status + ')', 3000);
+        if (apiStatusChip) {
+          apiStatusChip.textContent = res.ok ? 'API online' : 'API ' + res.status;
+          apiStatusChip.classList.toggle('ok', res.ok || res.status === 401);
+          apiStatusChip.classList.toggle('bad', !(res.ok || res.status === 401));
+        }
+      } catch (_) {
+        showToast('API offline — check URL or start the bot', 3500);
+        if (apiStatusChip) {
+          apiStatusChip.textContent = 'API offline';
+          apiStatusChip.classList.remove('ok');
+          apiStatusChip.classList.add('bad');
+        }
+      } finally {
+        btnTestApi.disabled = false;
+      }
+    });
+  }
   btnSettingsMicrosoft.addEventListener('click', startMicrosoftFromApp);
 
   document.getElementById('btn-sign-out').addEventListener('click', async () => {
@@ -385,7 +762,7 @@
   });
 
   function openDiscord() {
-    const url = (settings && settings.discordInvite) || 'https://discord.gg/onyx';
+    const url = (settings && settings.discordInvite) || 'https://discord.gg/onyxrbw';
     window.onyx.openExternal(url);
   }
 

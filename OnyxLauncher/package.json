@@ -1,7 +1,7 @@
 {
   "name": "onyx-launcher",
   "productName": "Onyx Launcher",
-  "version": "1.0.1",
+  "version": "1.0.3",
   "description": "Onyx Client launcher — Ranked Bedwars 1.8.9",
   "main": "src/main/main.js",
   "author": "OnyxClient Team",

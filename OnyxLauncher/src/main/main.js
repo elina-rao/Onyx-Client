@@ -6,7 +6,8 @@ const sessionStore = require('./auth/sessionStore');
 const microsoftAuth = require('./auth/microsoftAuth');
 const { launchGame } = require('./launch/gameLauncher');
 const { ensureGameFiles, isInstalled, installForge, getLaunchReadiness } = require('./installer/gameInstaller');
-const { checkForUpdates, applyUpdates, LOCAL_VERSION } = require('./updater/autoUpdater');
+const { checkForUpdates, applyUpdates, LOCAL_VERSION, downloadAndStageLauncherUpdate, scheduleLauncherReplaceAndRelaunch } = require('./updater/autoUpdater');
+const skinManager = require('./skins/skinManager');
 
 // Prefer "Onyx Launcher" in menus; Dock reopen still needs the packed .app or wrapper
 // (opening node_modules Electron.app alone shows the default Electron splash).
@@ -25,6 +26,54 @@ if (process.platform === 'darwin' && app.dock && typeof app.dock.setIcon === 'fu
 }
 
 let mainWindow = null;
+
+function bootLog(message) {
+  const line = `[${new Date().toISOString()}] ${message}\n`;
+  try {
+    fs.appendFileSync('/tmp/onyx-boot.log', line);
+  } catch (_) {
+    /* ignore */
+  }
+  try {
+    if (app && typeof app.getPath === 'function') {
+      const logPath = path.join(app.getPath('userData'), 'boot.log');
+      fs.appendFileSync(logPath, line);
+    }
+  } catch (_) {
+    /* ignore */
+  }
+}
+
+bootLog(`main.js loaded argv=${JSON.stringify(process.argv)} dirname=${__dirname}`);
+
+function resolveIndexHtml() {
+  const candidates = [
+    path.join(__dirname, '../renderer/index.html'),
+    path.join(app.getAppPath(), 'src/renderer/index.html'),
+    path.join(process.resourcesPath || '', 'app.asar.unpacked/src/renderer/index.html')
+  ];
+  for (const candidate of candidates) {
+    try {
+      if (!candidate || !fs.existsSync(candidate)) continue;
+      const head = fs.readFileSync(candidate, { encoding: 'utf8', flag: 'r' }).slice(0, 64);
+      if (head.includes('<!DOCTYPE') || head.includes('<html')) {
+        return candidate;
+      }
+      bootLog(`reject non-html candidate: ${candidate} head=${JSON.stringify(head.slice(0, 40))}`);
+    } catch (err) {
+      bootLog(`candidate read failed: ${candidate} ${err.message}`);
+    }
+  }
+  return candidates[0];
+}
+
+function loadLauncherUi(win) {
+  const indexHtml = resolveIndexHtml();
+  bootLog(`loadFile ${indexHtml} argv=${JSON.stringify(process.argv)} dirname=${__dirname}`);
+  return win.loadFile(indexHtml).catch((err) => {
+    bootLog(`loadFile failed: ${err && err.message}`);
+  });
+}
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -48,7 +97,31 @@ function createWindow() {
     mainWindow.show();
   });
 
-  mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));
+  // Never allow the shell to navigate onto a raw .js document (shows source as text).
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    const clean = String(url || '').split('#')[0].split('?')[0];
+    if (/\.js$/i.test(clean) || /authModal\.js$/i.test(clean)) {
+      bootLog(`blocked navigate to ${url}`);
+      event.preventDefault();
+      loadLauncherUi(mainWindow);
+    }
+  });
+
+  mainWindow.webContents.on('did-finish-load', () => {
+    const url = mainWindow.webContents.getURL();
+    bootLog(`did-finish-load ${url}`);
+    const clean = String(url || '').split('#')[0].split('?')[0];
+    if (/\.js$/i.test(clean)) {
+      bootLog('self-heal: reloading index.html after .js document load');
+      loadLauncherUi(mainWindow);
+    }
+  });
+
+  mainWindow.webContents.on('did-fail-load', (_e, code, desc, url) => {
+    bootLog(`did-fail-load code=${code} desc=${desc} url=${url}`);
+  });
+
+  loadLauncherUi(mainWindow);
 
   if (process.argv.includes('--dev')) {
     mainWindow.webContents.openDevTools({ mode: 'detach' });
@@ -219,9 +292,14 @@ function registerIpc() {
     if (session.guest || session.type === 'guest') {
       return { ok: false, reason: 'guest' };
     }
+    const ign = String(session.username || '').trim();
+    if (!ign) {
+      return { ok: false, reason: 'no-ign' };
+    }
     const cfg = config.load();
     const base = String(cfg.onyxApiEndpoint || 'https://api.onyxrbw.com').replace(/\/$/, '');
-    const url = `${base}/stats/${encodeURIComponent(session.uuid)}`;
+    // Ranked Bedwars looks up by IGN (public GET /stats/:username)
+    const url = `${base}/stats/${encodeURIComponent(ign)}`;
     try {
       const res = await fetch(url, {
         headers: { Accept: 'application/json' },
@@ -236,6 +314,7 @@ function registerIpc() {
         elo: data.elo ?? data.ELO ?? data.rating ?? null,
         rank: data.rank ?? data.Rank ?? data.tier ?? null,
         wins: data.wins ?? data.Wins ?? data.victories ?? null,
+        ign: data.username ?? data.ign ?? ign,
         raw: data
       };
     } catch (err) {
@@ -268,6 +347,35 @@ function registerIpc() {
     return info;
   });
 
+  ipcMain.handle('updater:install-launcher', async () => {
+    try {
+      const info = await checkForUpdates((p) => send('updater:progress', p));
+      if (!info.ok || !info.launcherUpdate) {
+        return { ok: false, error: 'No launcher update available' };
+      }
+      if (!info.launcherUpdate.url) {
+        return {
+          ok: false,
+          error: 'Update server did not provide launcherUrl',
+          version: info.launcherUpdate.version
+        };
+      }
+      const staged = await downloadAndStageLauncherUpdate(info.launcherUpdate, (p) =>
+        send('updater:progress', p)
+      );
+      if (!staged.ok) {
+        return staged;
+      }
+      scheduleLauncherReplaceAndRelaunch(staged.stagedApp);
+      setTimeout(() => {
+        app.quit();
+      }, 400);
+      return { ok: true, restarting: true, version: staged.version };
+    } catch (err) {
+      return { ok: false, error: err.message || String(err) };
+    }
+  });
+
   ipcMain.handle('shell:open-external', async (_e, url) => {
     if (typeof url === 'string' && /^https?:\/\//i.test(url)) {
       await shell.openExternal(url);
@@ -277,6 +385,55 @@ function registerIpc() {
   });
 
   ipcMain.handle('app:get-version', async () => LOCAL_VERSION);
+
+  ipcMain.handle('skin:list', async () => skinManager.list());
+
+  ipcMain.handle('skin:get-data', async (_e, id) => skinManager.getDataUrl(id));
+
+  ipcMain.handle('skin:import', async () => {
+    if (!mainWindow) {
+      return { ok: false, cancelled: true };
+    }
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: 'Import skin PNG',
+      properties: ['openFile'],
+      filters: [{ name: 'Minecraft Skin', extensions: ['png'] }]
+    });
+    if (result.canceled || !result.filePaths || !result.filePaths[0]) {
+      return { ok: false, cancelled: true };
+    }
+    return skinManager.importFromPath(result.filePaths[0]);
+  });
+
+  ipcMain.handle('skin:copy-username', async (_e, username) => {
+    try {
+      return await skinManager.copyFromUsername(username);
+    } catch (err) {
+      return { ok: false, error: err.message || 'Copy failed' };
+    }
+  });
+
+  ipcMain.handle('skin:delete', async (_e, id) => skinManager.deleteSkin(id));
+
+  ipcMain.handle('skin:set-active', async (_e, id) => skinManager.setActive(id));
+
+  ipcMain.handle('skin:set-model', async (_e, model) => skinManager.setModel(model));
+
+  ipcMain.handle('skin:apply', async () => {
+    try {
+      return await skinManager.applyActiveToAccount();
+    } catch (err) {
+      return { ok: false, error: err.message || 'Apply failed' };
+    }
+  });
+
+  ipcMain.handle('skin:reset', async () => {
+    try {
+      return await skinManager.resetAccountSkin();
+    } catch (err) {
+      return { ok: false, error: err.message || 'Reset failed' };
+    }
+  });
 }
 
 app.whenReady().then(() => {
