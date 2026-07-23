@@ -52,6 +52,10 @@ public class ModuleManager {
         register(new NoHurtCamModule());
         register(new EntityCullingModule());
         register(new TCPNoDelayModule());
+        register(new ThreadPriorityModule());
+        register(new LowLatencyPacketsModule());
+        register(new HitFeedbackSyncModule());
+        register(new RawInputModule());
         register(new BlockHarvestParticlesModule());
 
         // HUD

@@ -611,6 +611,14 @@ async function launchForge(opts, onProgress) {
     user_type: userType
   });
 
+  // Auto-join ranked server (Hypixel-safe — vanilla --server/--port)
+  const serverIp = (opts.serverIp || '').trim();
+  if (serverIp) {
+    const host = serverIp.includes(':') ? serverIp.split(':')[0] : serverIp;
+    const port = serverIp.includes(':') ? serverIp.split(':')[1] : '25565';
+    gameArgs.push('--server', host, '--port', String(port || '25565'));
+  }
+
   const cpSep = process.platform === 'win32' ? ';' : ':';
   const classpath = jars.join(cpSep);
   const jvmFlags = buildJvmFlags(opts.ramGb || 4);

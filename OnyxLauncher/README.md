@@ -6,7 +6,17 @@ Standalone desktop launcher for **Onyx Client** (Minecraft 1.8.9 Ranked Bedwars)
 
 - Node.js 18+
 - npm 9+
-- Java 8 (or set a custom Java path in Settings; optional bundled JRE under `resources/jre/`)
+- Java 8 for **building** the client/loader (packaged launches use a **bundled JRE** under `resources/jre/`)
+
+Fetch / refresh the bundled JRE:
+
+```bash
+npm run fetch-jre
+# or for Windows packaging from mac:
+node scripts/fetch-jre.js --platform windows --arch x64
+```
+
+`npm run build:mac` / `build:win` call `fetch-jre` first.
 
 ## Develop
 
@@ -105,9 +115,9 @@ Azure checklist for Microsoft login:
 4. Account must own **Minecraft: Java Edition** (Game Pass: open the official Minecraft Launcher once to create a Java profile)
 ## First-run install
 
-On Play, the launcher downloads Minecraft **1.8.9** client files into the game directory and fetches the Forge `1.8.9-11.15.1.2318` installer when missing.
+On Play, the launcher downloads Minecraft **1.8.9**, then installs Forge **silently** (CLI, then extract + library download — **no Forge GUI**). Bundled `resources/jre` supplies Java 8 when the OS has none.
 
-**Home readiness strip** shows Java / Forge / Client status. Use **Install Forge 1.8.9** to run the installer (`--installClient`); if CLI install cannot finish, the GUI installer opens so you can complete it, then press **Refresh**.
+**Home readiness strip** shows Java / Forge / Client status. Press **Play** or **Install Forge 1.8.9**; after a successful silent install, Play launches with `--server eu.onyxrbw.com` (configurable `serverIp`).
 
 ## Auto-update
 

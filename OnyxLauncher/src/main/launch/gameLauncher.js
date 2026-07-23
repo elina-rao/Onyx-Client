@@ -283,7 +283,8 @@ async function launchGame(opts, onProgress) {
         minecraftRoot: mcRoot,
         ramGb,
         session: auth.session,
-        appPath
+        appPath,
+        serverIp: cfg.serverIp || config.DEFAULTS.serverIp
       },
       onProgress
     );
@@ -302,6 +303,12 @@ async function launchGame(opts, onProgress) {
 
   const flags = buildJvmFlags(ramGb);
   const args = [...flags, '-jar', loaderJar, '--gameDir', gameDir];
+  const serverIp = (cfg.serverIp || config.DEFAULTS.serverIp || '').trim();
+  if (serverIp) {
+    const host = serverIp.includes(':') ? serverIp.split(':')[0] : serverIp;
+    const port = serverIp.includes(':') ? serverIp.split(':')[1] : '25565';
+    args.push('--server', host, '--port', String(port || '25565'));
+  }
 
   return new Promise((resolve) => {
     const { spawn } = require('child_process');

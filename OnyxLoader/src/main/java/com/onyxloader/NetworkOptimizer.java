@@ -5,8 +5,7 @@ import java.lang.reflect.Method;
 import java.net.Socket;
 
 /**
- * Installs TCP_NODELAY / buffer hints. Hooks Netty when available after MC loads
- * via a shutdown-safe agent-style listener on class load.
+ * TCP_NODELAY / buffer hints. Packet payloads stay vanilla — we only reduce buffering.
  */
 public final class NetworkOptimizer {
 
@@ -21,7 +20,8 @@ public final class NetworkOptimizer {
         }
         installed = true;
         System.setProperty("onyx.tcpNoDelay", "true");
-        System.out.println("[OnyxLoader] Network optimizer installed (TCP_NODELAY preferred)");
+        System.setProperty("onyx.net.flush", "true");
+        System.out.println("[OnyxLoader] Network optimizer installed (TCP_NODELAY + flush preferred)");
     }
 
     public static void tuneSocket(Socket socket) {
@@ -32,6 +32,7 @@ public final class NetworkOptimizer {
             socket.setTcpNoDelay(true);
             socket.setSendBufferSize(65535);
             socket.setReceiveBufferSize(65535);
+            socket.setTrafficClass(0x10); // IPTOS_LOWDELAY when supported
         } catch (Exception ignored) {
         }
     }
@@ -51,6 +52,18 @@ public final class NetworkOptimizer {
             Object option = tcpNoDelay.get(null);
             Method setOption = cfg.getClass().getMethod("setOption", optionClass, Object.class);
             setOption.invoke(cfg, option, Boolean.TRUE);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /** Best-effort channel flush after a write (same packet bytes). */
+    public static void flushChannel(Object channel) {
+        if (channel == null || !"true".equals(System.getProperty("onyx.net.flush", "true"))) {
+            return;
+        }
+        try {
+            Method flush = channel.getClass().getMethod("flush");
+            flush.invoke(channel);
         } catch (Throwable ignored) {
         }
     }

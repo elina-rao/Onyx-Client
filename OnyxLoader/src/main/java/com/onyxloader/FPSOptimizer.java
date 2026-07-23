@@ -10,16 +10,22 @@ public final class FPSOptimizer {
     }
 
     public static void applyProcessHints() {
-        try {
-            Thread.currentThread().setPriority(Thread.MAX_PRIORITY);
-        } catch (Exception ignored) {
-        }
+        ThreadPriorityManager.install();
 
-        // Hint OS to prefer performance (best-effort; may no-op)
+        // Prefer performance where the JDK honors these hints
         System.setProperty("sun.java2d.opengl", "true");
         System.setProperty("java.awt.headless", "false");
+        System.setProperty("onyx.fps.pool", "true");
+        System.setProperty("onyx.patch.chunkSkipUnchanged", "true");
+        System.setProperty("onyx.patch.entityBatch", "true");
+        System.setProperty("onyx.patch.glStateCache", "true");
 
-        // Ensure options defaults if missing (launcher also writes these)
-        System.out.println("[OnyxLoader] FPS optimizer: render thread priority elevated");
+        // Soft GC ergonomics hint for Java 8 (launcher also sets G1 flags)
+        if (System.getProperty("onyx.gc.hints", "true").equals("true")) {
+            System.setProperty("java.util.concurrent.ForkJoinPool.common.parallelism",
+                    String.valueOf(Math.max(2, Runtime.getRuntime().availableProcessors() - 1)));
+        }
+
+        System.out.println("[OnyxLoader] FPS optimizer: thread priority + render hints applied");
     }
 }

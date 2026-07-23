@@ -26,6 +26,9 @@ public final class OnyxLoader {
 
         FPSOptimizer.applyProcessHints();
         NetworkOptimizer.install();
+        ThreadPriorityManager.install();
+        PatchManager.applyPatches();
+        System.setProperty("onyx.transformer", OnyxClassTransformer.TRANSFORMER_CLASS);
 
         File optifineJar = OptiFineInjector.extractBundled(gameDir);
         File clientJar = findClientJar(gameDir);
@@ -44,7 +47,6 @@ public final class OnyxLoader {
 
         ClassInjector.injectUrls(classpath);
         OptiFineInjector.writeOptiFineProperties(gameDir);
-        PatchManager.applyPatches();
 
         // Prefer Forge client main when available on classpath; else vanilla.
         String[] launchArgs = buildLaunchArgs(args, gameDir);

@@ -23,6 +23,7 @@
     "MixinModelPlayer",
     "MixinRenderGlobal",
     "MixinTileEntityRendererDispatcher",
-    "MixinFontRenderer"
+    "MixinFontRenderer",
+    "MixinNetHandlerPlayClient"
   ]
 }

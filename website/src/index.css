@@ -1,0 +1,122 @@
+/* Fonts must be imported before Tailwind in v4 (self-hosted via @fontsource) */
+@import "@fontsource/rajdhani/400.css";
+@import "@fontsource/rajdhani/500.css";
+@import "@fontsource/rajdhani/600.css";
+@import "@fontsource/rajdhani/700.css";
+@import "@fontsource/outfit/500.css";
+@import "@fontsource/outfit/600.css";
+@import "@fontsource/outfit/700.css";
+@import "@fontsource/outfit/800.css";
+@import "@fontsource/outfit/900.css";
+
+@import "tailwindcss";
+
+@theme {
+  /* Brand surfaces */
+  --color-deep: #0d0d0d;
+  --color-void: #080810;
+  --color-card: #14101f;
+  --color-panel: #110820;
+  --color-elevated: #1a1330;
+
+  /* Accents */
+  --color-brand: #7b2fbe;
+  --color-brand-bright: #b060ff;
+  --color-brand-glow: #c490ff;
+
+  /* Text */
+  --color-ink: #f0f0ff;
+  --color-muted: #9d9db4;
+  --color-faint: #6b6b7b;
+
+  /* Utility */
+  --color-line: #2a1a4a;
+  --color-line-soft: #3a2a5a;
+  --color-good: #4ade80;
+  --color-bad: #f87171;
+
+  /* Rank tiers */
+  --color-tier-onyx: #b060ff;
+  --color-tier-obsidian: #5a3aa5;
+  --color-tier-amethyst: #b060ff;
+  --color-tier-diamond: #38d0e0;
+  --color-tier-gold: #e8b23a;
+  --color-tier-iron: #c9c9d6;
+  --color-tier-coal: #3a3a42;
+  --color-tier-wood: #8a5a3b;
+  --color-tier-unranked: #6b6b7b;
+
+  /* Fonts */
+  --font-sans: "Rajdhani", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Outfit", "Rajdhani", ui-sans-serif, system-ui, sans-serif;
+}
+
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+
+  html {
+    scroll-behavior: smooth;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background-color: var(--color-deep);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    font-weight: 500;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-display);
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    line-height: 1.02;
+    margin: 0;
+  }
+
+  a {
+    color: inherit;
+    text-decoration: none;
+  }
+
+  ::selection {
+    background: color-mix(in oklab, var(--color-brand) 45%, transparent);
+    color: #fff;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-brand-bright);
+    outline-offset: 2px;
+  }
+}
+
+@layer utilities {
+  .text-gradient {
+    background: linear-gradient(180deg, var(--color-brand-glow), var(--color-brand));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  .bg-grid {
+    background-image:
+      linear-gradient(to right, color-mix(in oklab, var(--color-brand) 8%, transparent) 1px, transparent 1px),
+      linear-gradient(to bottom, color-mix(in oklab, var(--color-brand) 8%, transparent) 1px, transparent 1px);
+    background-size: 56px 56px;
+  }
+
+  @keyframes drift {
+    0% { transform: translate3d(0, 0, 0); }
+    100% { transform: translate3d(-56px, -56px, 0); }
+  }
+
+  .animate-drift {
+    animation: drift 18s linear infinite;
+  }
+}

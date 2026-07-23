@@ -5,7 +5,7 @@ const http = require('http');
 const { createWriteStream } = require('fs');
 const { spawn } = require('child_process');
 const { URL } = require('url');
-const { app, shell } = require('electron');
+const { app } = require('electron');
 const config = require('../config/launcherConfig');
 const {
   hasForgeInstall,
@@ -278,9 +278,203 @@ function runForgeInstallerCli(javaPath, installerJar, mcRoot, onProgress) {
   });
 }
 
+function libraryAllowedOs(lib) {
+  const rules = lib.rules;
+  if (!rules || !rules.length) {
+    return true;
+  }
+  const osName =
+    process.platform === 'darwin' ? 'osx' : process.platform === 'win32' ? 'windows' : 'linux';
+  let allowed = false;
+  for (const rule of rules) {
+    const actionAllow = rule.action === 'allow';
+    if (!rule.os) {
+      allowed = actionAllow;
+      continue;
+    }
+    if (rule.os.name === osName) {
+      allowed = actionAllow;
+    }
+  }
+  return allowed;
+}
+
+function extractZipEntry(zipPath, entryName, destFile) {
+  const { execFileSync } = require('child_process');
+  const tmp = path.join(path.dirname(destFile), `.extract-${Date.now()}`);
+  fs.mkdirSync(tmp, { recursive: true });
+  try {
+    execFileSync('unzip', ['-o', '-q', zipPath, entryName, '-d', tmp], { stdio: 'ignore' });
+    const src = path.join(tmp, entryName);
+    if (!fs.existsSync(src)) {
+      // try basename only
+      const alt = path.join(tmp, path.basename(entryName));
+      if (!fs.existsSync(alt)) {
+        throw new Error(`Entry not found in installer: ${entryName}`);
+      }
+      fs.mkdirSync(path.dirname(destFile), { recursive: true });
+      fs.copyFileSync(alt, destFile);
+    } else {
+      fs.mkdirSync(path.dirname(destFile), { recursive: true });
+      fs.copyFileSync(src, destFile);
+    }
+  } finally {
+    try {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    } catch (_) {
+      /* ignore */
+    }
+  }
+}
+
+async function downloadLibraryArtifact(mcRoot, lib, onProgress, index, total) {
+  if (!libraryAllowedOs(lib)) {
+    return;
+  }
+  const artifact = lib.downloads && lib.downloads.artifact;
+  let url = artifact && artifact.url;
+  let rel = artifact && artifact.path;
+  if (!rel && lib.name) {
+    const parts = lib.name.split(':');
+    if (parts.length >= 3) {
+      const [group, art, ver] = parts;
+      rel = `${group.replace(/\./g, '/')}/${art}/${ver}/${art}-${ver}.jar`;
+    }
+  }
+  if (!rel) {
+    return;
+  }
+  const dest = path.join(mcRoot, 'libraries', rel);
+  if (fs.existsSync(dest) && fs.statSync(dest).size > 0) {
+    return;
+  }
+  if (!url) {
+    url = `https://libraries.minecraft.net/${rel.replace(/\\/g, '/')}`;
+    if (lib.name && lib.name.startsWith('net.minecraftforge')) {
+      url = `https://maven.minecraftforge.net/${rel.replace(/\\/g, '/')}`;
+    }
+  }
+  if (onProgress) {
+    onProgress({
+      stage: 'libraries',
+      message: `Library ${index}/${total}…`,
+      percent: 50 + Math.min(35, Math.round((index / Math.max(1, total)) * 35))
+    });
+  }
+  try {
+    await download(url, dest);
+  } catch (err) {
+    // Forge libs often live on forge maven when Mojang URL 404s
+    if (!url.includes('minecraftforge')) {
+      const forgeUrl = `https://maven.minecraftforge.net/${rel.replace(/\\/g, '/')}`;
+      await download(forgeUrl, dest);
+    } else {
+      throw err;
+    }
+  }
+
+  // Natives classifiers
+  if (lib.natives && lib.downloads && lib.downloads.classifiers) {
+    const osName =
+      process.platform === 'darwin' ? 'osx' : process.platform === 'win32' ? 'windows' : 'linux';
+    let classifier = lib.natives[osName];
+    if (classifier) {
+      classifier = classifier.replace(
+        '${arch}',
+        process.arch === 'x64' || process.arch === 'arm64' ? '64' : '32'
+      );
+      const info = lib.downloads.classifiers[classifier];
+      if (info && info.path) {
+        const nDest = path.join(mcRoot, 'libraries', info.path);
+        if (!fs.existsSync(nDest) || fs.statSync(nDest).size === 0) {
+          const nUrl =
+            info.url || `https://libraries.minecraft.net/${info.path.replace(/\\/g, '/')}`;
+          await download(nUrl, nDest);
+        }
+      }
+    }
+  }
+}
+
 /**
- * Download (if needed) and run the Forge 1.8.9 client installer into the
- * resolved Minecraft root. Falls back to opening the GUI installer.
+ * Silent Forge install: extract version.json + universal jar from the installer,
+ * download libraries, never open the Forge GUI.
+ */
+async function installForgeSilent(javaPath, installerJar, mcRoot, onProgress) {
+  const progress = onProgress || (() => {});
+  const versionDir = path.join(mcRoot, 'versions', FORGE_VERSION_ID);
+  fs.mkdirSync(versionDir, { recursive: true });
+  const versionJsonPath = path.join(versionDir, `${FORGE_VERSION_ID}.json`);
+
+  progress({ stage: 'forge-extract', message: 'Extracting Forge profile…', percent: 78 });
+  if (!fs.existsSync(versionJsonPath)) {
+    extractZipEntry(installerJar, 'version.json', versionJsonPath);
+  }
+
+  // Universal / forge jar inside installer (several possible names)
+  const forgeJarDest = path.join(versionDir, `${FORGE_VERSION_ID}.jar`);
+  const forgeJarAlt = path.join(versionDir, 'forge-1.8.9-11.15.1.2318-1.8.9.jar');
+  if (!fs.existsSync(forgeJarDest) && !fs.existsSync(forgeJarAlt)) {
+    const candidates = [
+      `forge-${FORGE_VERSION}-universal.jar`,
+      `maven/net/minecraftforge/forge/${FORGE_VERSION}/forge-${FORGE_VERSION}-universal.jar`,
+      `forge-${FORGE_VERSION}-1.8.9-universal.jar`
+    ];
+    let extracted = false;
+    for (const entry of candidates) {
+      try {
+        extractZipEntry(installerJar, entry, forgeJarDest);
+        extracted = true;
+        break;
+      } catch (_) {
+        /* try next */
+      }
+    }
+    if (!extracted) {
+      // Last resort: pull from Forge maven
+      const mavenJar = path.join(
+        mcRoot,
+        'libraries',
+        'net',
+        'minecraftforge',
+        'forge',
+        `${FORGE_VERSION}-1.8.9`,
+        `forge-${FORGE_VERSION}-1.8.9.jar`
+      );
+      const mavenUrl = `https://maven.minecraftforge.net/net/minecraftforge/forge/${FORGE_VERSION}-${MC_VERSION}/forge-${FORGE_VERSION}-${MC_VERSION}-universal.jar`;
+      try {
+        await download(mavenUrl, mavenJar);
+        fs.copyFileSync(mavenJar, forgeJarDest);
+      } catch (err) {
+        throw new Error(`Could not extract Forge jar from installer: ${err.message}`);
+      }
+    }
+  }
+
+  const versionJson = JSON.parse(fs.readFileSync(versionJsonPath, 'utf8'));
+  const libs = versionJson.libraries || [];
+  progress({
+    stage: 'libraries',
+    message: `Downloading ${libs.length} Forge libraries…`,
+    percent: 50
+  });
+  for (let i = 0; i < libs.length; i++) {
+    await downloadLibraryArtifact(mcRoot, libs[i], progress, i + 1, libs.length);
+  }
+
+  // Ensure vanilla jar still present
+  await ensureVanillaClient(mcRoot, progress);
+
+  if (!hasForgeInstall(mcRoot)) {
+    throw new Error('Silent Forge install finished but version files are incomplete');
+  }
+  progress({ stage: 'ready', message: 'Forge 1.8.9 installed (silent)', percent: 100 });
+  return { ok: true, minecraftRoot: mcRoot, method: 'silent' };
+}
+
+/**
+ * Download (if needed) and install Forge 1.8.9 without a GUI.
+ * Tries official CLI first, then silent extract + library download.
  */
 async function installForge(onProgress) {
   const progress = onProgress || (() => {});
@@ -303,7 +497,7 @@ async function installForge(onProgress) {
       return {
         ok: false,
         error:
-          'Java 8 not found — set Java Path in Settings (Browse) or install JDK 8 before installing Forge'
+          'Java 8 not found — the launcher should bundle a JRE. Reinstall Onyx Launcher or set Java Path in Settings.'
       };
     }
 
@@ -314,39 +508,33 @@ async function installForge(onProgress) {
     }
 
     progress({
-      stage: 'forge-gui',
-      message: 'Opening Forge installer — choose Install client…',
-      percent: 95
+      stage: 'forge-silent',
+      message: 'CLI incomplete — installing Forge silently…',
+      percent: 90
     });
     try {
-      spawn(javaPath, ['-jar', installerJar], {
-        cwd: path.dirname(installerJar),
-        detached: true,
-        stdio: 'ignore'
-      }).unref();
-    } catch (_) {
-      await shell.openPath(installerJar);
+      return await installForgeSilent(javaPath, installerJar, mcRoot, progress);
+    } catch (silentErr) {
+      return {
+        ok: false,
+        installerPath: installerJar,
+        minecraftRoot: mcRoot,
+        error:
+          `Could not install Forge automatically.\n${silentErr.message}\n` +
+          (cli.error ? `CLI: ${cli.error.split('\n')[0]}\n` : '') +
+          `Installer: ${installerJar}\nTarget: ${mcRoot}`
+      };
     }
-
-    return {
-      ok: false,
-      needsManual: true,
-      installerPath: installerJar,
-      minecraftRoot: mcRoot,
-      error:
-        `CLI install did not finish${cli.error ? ` (${cli.error.split('\n')[0]})` : ''}.\n\n` +
-        `The Forge installer window should be open — choose Install client, set the folder to:\n${mcRoot}\n\nThen press Refresh readiness or Play.`
-    };
   } catch (err) {
     return { ok: false, error: err.message };
   }
 }
 
 /**
- * Ensures vanilla client jar + asset index exist. Forge must already be installed
- * (or the user runs Install Forge). When Forge is present this is a no-op success.
+ * Ensures vanilla + Forge are ready for Play. Installs Forge silently when missing.
  */
 async function ensureGameFiles(onProgress) {
+  const progress = onProgress || (() => {});
   const cfg = config.load();
   const gameDir = cfg.gameDir;
   const mcRoot = resolveMinecraftRoot(gameDir);
@@ -355,26 +543,24 @@ async function ensureGameFiles(onProgress) {
   const status = isInstalled(gameDir);
   if (status.forge) {
     try {
-      await ensureAssetIndex(mcRoot, onProgress);
+      await ensureAssetIndex(mcRoot, progress);
     } catch (err) {
       console.warn('[install] Asset index:', err.message);
     }
-    onProgress({ stage: 'ready', message: 'Forge 1.8.9 ready', percent: 100 });
+    progress({ stage: 'ready', message: 'Forge 1.8.9 ready', percent: 100 });
     return { ok: true, status, skipped: true, minecraftRoot: mcRoot };
   }
 
   try {
-    await ensureVanillaClient(mcRoot, onProgress);
-
-    let forgeInstaller = null;
-    try {
-      forgeInstaller = await ensureForgeInstallerJar(gameDir, onProgress);
-    } catch (err) {
-      onProgress({
-        stage: 'forge-warn',
-        message: `Forge download skipped: ${err.message}`,
-        percent: 90
-      });
+    await ensureVanillaClient(mcRoot, progress);
+    const forgeResult = await installForge(progress);
+    if (!forgeResult.ok || !hasForgeInstall(mcRoot)) {
+      return {
+        ok: false,
+        error:
+          (forgeResult && forgeResult.error) ||
+          `Minecraft downloaded, but Forge install failed for:\n${mcRoot}`
+      };
     }
 
     fs.writeFileSync(
@@ -385,10 +571,8 @@ async function ensureGameFiles(onProgress) {
           forge: FORGE_VERSION,
           forgeVersionId: FORGE_VERSION_ID,
           installedAt: new Date().toISOString(),
-          forgeInstaller: forgeInstaller && fs.existsSync(forgeInstaller) ? forgeInstaller : null,
-          minecraftRoot: mcRoot,
-          hint:
-            'Use Install Forge in the launcher, or run the Forge installer and press Play again.'
+          method: forgeResult.method || 'silent',
+          minecraftRoot: mcRoot
         },
         null,
         2
@@ -396,18 +580,8 @@ async function ensureGameFiles(onProgress) {
       'utf8'
     );
 
-    if (!hasForgeInstall(mcRoot)) {
-      return {
-        ok: false,
-        error:
-          `Minecraft files downloaded, but Forge is not installed yet.\n\n` +
-          `Use Install Forge 1.8.9 on the Home screen, or run:\n${forgeInstaller || FORGE_INSTALLER_URL}\n` +
-          `Target folder: ${mcRoot || defaultMinecraftDir()}`
-      };
-    }
-
-    onProgress({ stage: 'ready', message: 'Installation complete', percent: 100 });
-    return { ok: true, status: isInstalled(gameDir), forgeInstaller, minecraftRoot: mcRoot };
+    progress({ stage: 'ready', message: 'Installation complete', percent: 100 });
+    return { ok: true, status: isInstalled(gameDir), minecraftRoot: mcRoot };
   } catch (err) {
     return { ok: false, error: err.message };
   }

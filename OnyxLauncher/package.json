@@ -14,8 +14,11 @@
     "open:dist": "open \"dist/mac-arm64/Onyx Launcher.app\" 2>/dev/null || open \"dist/mac-arm64/OnyxLauncher.app\" 2>/dev/null || open \"dist/mac/Onyx Launcher.app\" 2>/dev/null || open \"dist/mac/OnyxLauncher.app\" 2>/dev/null || open \"dist/mac-x64/Onyx Launcher.app\" 2>/dev/null || open \"dist/mac-x64/OnyxLauncher.app\"",
     "install:app": "bash scripts/install-app.sh",
     "build": "electron-builder",
-    "build:mac": "electron-builder --mac",
-    "build:win": "electron-builder --win",
+    "build:mac": "node scripts/fetch-jre.js && electron-builder --mac --universal",
+    "build:win": "node scripts/fetch-jre.js --platform windows --arch x64 && electron-builder --win --x64",
+    "build:mac:arm64": "node scripts/fetch-jre.js --platform mac --arch aarch64 && electron-builder --mac --arm64",
+    "build:all": "npm run build:mac && npm run build:win",
+    "fetch-jre": "node scripts/fetch-jre.js",
     "pack": "electron-builder --dir",
     "pack:install": "npm run pack && npm run install:app"
   },
