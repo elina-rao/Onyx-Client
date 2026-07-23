@@ -27,7 +27,10 @@ eclipse/
 # Secrets
 config/onyxclient/settings.json
 .env
-.env.*
+.env.local
+.env.*.local
+!.env.example
+!website/.env.example
 
 # Accidental / misplaced copies at repo root
 /main.js
